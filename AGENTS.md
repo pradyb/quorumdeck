@@ -1,4 +1,4 @@
-# Working on agentdeck
+# Working on quorumdeck
 
 Guidance for AI coding assistants and new contributors alike.
 
@@ -11,7 +11,7 @@ a coding agent. See `ROADMAP.md` for what is explicitly out of scope.
 ## Layout
 
 ```
-src/agentdeck/
+src/quorumdeck/
   core/        agent · orchestrator · session · events · messages · costs
   providers/   base (the port) · litellm_provider (the only adapter)
   config/      schema (pydantic) · loader · secrets (OS keychain)
@@ -37,7 +37,7 @@ uv sync
 uv run pytest
 uv run ruff check . && uv run ruff format .
 uv run deck --config examples/fanout.yaml agents   # no network needed
-uv run textual run --dev agentdeck.tui.app:AgentDeckApp
+uv run textual run --dev quorumdeck.tui.app:QuorumDeckApp
 ```
 
 ## Conventions

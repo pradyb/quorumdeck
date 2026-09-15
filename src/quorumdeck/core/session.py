@@ -8,8 +8,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from agentdeck.core.events import Usage
-from agentdeck.core.messages import Message, Role, assistant, user
+from quorumdeck.core.events import Usage
+from quorumdeck.core.messages import Message, Role, assistant, user
 
 SCHEMA_VERSION = 1
 

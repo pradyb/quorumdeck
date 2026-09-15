@@ -7,9 +7,9 @@ from collections.abc import AsyncIterator, Sequence
 
 import pytest
 
-from agentdeck.core.agent import Agent, AgentSpec
-from agentdeck.core.events import Usage
-from agentdeck.providers.base import (
+from quorumdeck.core.agent import Agent, AgentSpec
+from quorumdeck.core.events import Usage
+from quorumdeck.providers.base import (
     Chunk,
     Completed,
     CompletionRequest,

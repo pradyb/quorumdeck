@@ -10,9 +10,9 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
-from agentdeck.core.costs import cost_usd
-from agentdeck.core.events import Usage
-from agentdeck.providers.base import (
+from quorumdeck.core.costs import cost_usd
+from quorumdeck.core.events import Usage
+from quorumdeck.providers.base import (
     Chunk,
     Completed,
     CompletionRequest,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentdeck.cli import main
+from quorumdeck.cli import main
 
 CONFIG = """
 version: 1
@@ -15,7 +15,7 @@ agents:
 
 @pytest.fixture
 def config_file(tmp_path):
-    path = tmp_path / "agentdeck.yaml"
+    path = tmp_path / "quorumdeck.yaml"
     path.write_text(CONFIG, encoding="utf-8")
     return path
 
@@ -24,7 +24,7 @@ def test_version_exits_cleanly(capsys):
     with pytest.raises(SystemExit) as exit_info:
         main(["--version"])
     assert exit_info.value.code == 0
-    assert "agentdeck" in capsys.readouterr().out
+    assert "quorumdeck" in capsys.readouterr().out
 
 
 def test_agents_lists_the_deck(config_file, capsys):
@@ -67,7 +67,7 @@ def test_litellm_is_not_imported_just_to_show_help():
         [
             sys.executable,
             "-c",
-            "import agentdeck.cli, sys; "
+            "import quorumdeck.cli, sys; "
             "print('litellm' in sys.modules or 'textual' in sys.modules)",
         ],
         capture_output=True,

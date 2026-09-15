@@ -12,9 +12,9 @@ import asyncio
 from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
 from enum import StrEnum
 
-from agentdeck.core.agent import Agent
-from agentdeck.core.events import Event, RunFailed, RunFinished
-from agentdeck.core.session import Session
+from quorumdeck.core.agent import Agent
+from quorumdeck.core.events import Event, RunFailed, RunFinished
+from quorumdeck.core.session import Session
 
 
 class Pattern(StrEnum):

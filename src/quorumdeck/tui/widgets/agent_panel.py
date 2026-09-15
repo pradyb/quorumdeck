@@ -14,9 +14,9 @@ if TYPE_CHECKING:
     # is a type-only import to avoid depending on a private module at runtime.
     from textual.widgets._markdown import MarkdownStream
 
-from agentdeck.core.agent import AgentSpec
-from agentdeck.core.costs import format_usd
-from agentdeck.core.events import Usage
+from quorumdeck.core.agent import AgentSpec
+from quorumdeck.core.costs import format_usd
+from quorumdeck.core.events import Usage
 
 
 class AgentPanel(Widget):

@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest something agentdeck should do
+description: Suggest something quorumdeck should do
 labels: ["enhancement"]
 body:
   - type: textarea

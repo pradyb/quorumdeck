@@ -5,8 +5,8 @@ from __future__ import annotations
 from textual.reactive import reactive
 from textual.widgets import Static
 
-from agentdeck.core.costs import format_usd
-from agentdeck.core.events import Usage
+from quorumdeck.core.costs import format_usd
+from quorumdeck.core.events import Usage
 
 
 class StatusBar(Static):

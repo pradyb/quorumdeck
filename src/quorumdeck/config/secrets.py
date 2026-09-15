@@ -12,7 +12,7 @@ from collections.abc import Iterable
 
 log = logging.getLogger(__name__)
 
-SERVICE = "agentdeck"
+SERVICE = "quorumdeck"
 
 # Provider prefix (the part before "/" in a model id) -> env var LiteLLM reads.
 ENV_VARS: dict[str, str] = {

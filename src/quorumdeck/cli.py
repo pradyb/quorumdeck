@@ -14,15 +14,15 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from agentdeck import __version__
-from agentdeck.config import loader, secrets
-from agentdeck.config.loader import ConfigError
-from agentdeck.config.schema import DeckFile
-from agentdeck.core.agent import Agent
-from agentdeck.core.costs import format_usd
-from agentdeck.core.events import RunFailed, RunFinished, RunStarted, TextDelta
-from agentdeck.core.orchestrator import Orchestrator, Pattern
-from agentdeck.providers import default_provider
+from quorumdeck import __version__
+from quorumdeck.config import loader, secrets
+from quorumdeck.config.loader import ConfigError
+from quorumdeck.config.schema import DeckFile
+from quorumdeck.core.agent import Agent
+from quorumdeck.core.costs import format_usd
+from quorumdeck.core.events import RunFailed, RunFinished, RunStarted, TextDelta
+from quorumdeck.core.orchestrator import Orchestrator, Pattern
+from quorumdeck.providers import default_provider
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -30,7 +30,7 @@ def build_parser() -> argparse.ArgumentParser:
         prog="deck",
         description="A terminal console for running several AI agents side by side.",
     )
-    parser.add_argument("--version", action="version", version=f"agentdeck {__version__}")
+    parser.add_argument("--version", action="version", version=f"quorumdeck {__version__}")
     parser.add_argument("-c", "--config", type=Path, help="path to agents.yaml")
     parser.add_argument("-v", "--verbose", action="store_true", help="debug logging")
 
@@ -96,7 +96,7 @@ def _load(args: argparse.Namespace) -> DeckFile:
 def _cmd_tui(args: argparse.Namespace) -> int:
     config = _load(args)
     _warn_missing_keys(config)
-    from agentdeck.tui.app import run  # imported late: Textual is not needed for `run`
+    from quorumdeck.tui.app import run  # imported late: Textual is not needed for `run`
 
     run(config)
     return 0

@@ -12,10 +12,10 @@ from pathlib import Path
 import yaml
 from pydantic import ValidationError
 
-from agentdeck.config.schema import DeckFile
+from quorumdeck.config.schema import DeckFile
 
-APP_NAME = "agentdeck"
-PROJECT_FILENAMES = ("agentdeck.yaml", "agentdeck.yml", ".agentdeck/agents.yaml")
+APP_NAME = "quorumdeck"
+PROJECT_FILENAMES = ("quorumdeck.yaml", "quorumdeck.yml", ".quorumdeck/agents.yaml")
 
 
 class ConfigError(Exception):
@@ -59,7 +59,7 @@ def load(path: Path | None = None, *, start: Path | None = None) -> DeckFile:
     if resolved is None:
         raise ConfigError(
             "no config found. Run `deck config init` to create "
-            f"{user_config_path()}, or add agentdeck.yaml to this directory."
+            f"{user_config_path()}, or add quorumdeck.yaml to this directory."
         )
     if not resolved.is_file():
         raise ConfigError(f"config not found: {resolved}")
@@ -90,7 +90,7 @@ def _render(exc: ValidationError) -> str:
 
 
 TEMPLATE = """\
-# agentdeck -- https://github.com/pradyb/agentdeck
+# quorumdeck -- https://github.com/pradyb/quorumdeck
 version: 1
 
 deck:

@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass
 from time import perf_counter
 
-from agentdeck.core.events import (
+from quorumdeck.core.events import (
     Event,
     ReasoningDelta,
     RunFailed,
@@ -16,8 +16,8 @@ from agentdeck.core.events import (
     TextDelta,
     Usage,
 )
-from agentdeck.core.messages import Message, Role, system
-from agentdeck.providers.base import (
+from quorumdeck.core.messages import Message, Role, system
+from quorumdeck.providers.base import (
     Chunk,
     Completed,
     CompletionRequest,
@@ -49,9 +49,9 @@ class AgentSpec:
 
 
 class Agent:
-    """Turns a spec plus a message list into a stream of :mod:`~agentdeck.core.events`.
+    """Turns a spec plus a message list into a stream of :mod:`~quorumdeck.core.events`.
 
-    Holds no conversation state -- :class:`~agentdeck.core.session.Session` owns
+    Holds no conversation state -- :class:`~quorumdeck.core.session.Session` owns
     that, so the same agent can be replayed or forked without surprises.
     """
 

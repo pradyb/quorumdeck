@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import pytest
 
-from agentdeck.config import loader
-from agentdeck.config.loader import ConfigError
-from agentdeck.config.schema import DeckFile
-from agentdeck.core.orchestrator import Pattern
+from quorumdeck.config import loader
+from quorumdeck.config.loader import ConfigError
+from quorumdeck.config.schema import DeckFile
+from quorumdeck.core.orchestrator import Pattern
 
 MINIMAL = """
 version: 1
@@ -15,7 +15,7 @@ agents:
 """
 
 
-def write(tmp_path, text, name="agentdeck.yaml"):
+def write(tmp_path, text, name="quorumdeck.yaml"):
     path = tmp_path / name
     path.write_text(text, encoding="utf-8")
     return path
@@ -56,11 +56,11 @@ def test_project_config_beats_user_config(tmp_path, monkeypatch):
 
     project = tmp_path / "proj"
     project.mkdir()
-    (project / "agentdeck.yaml").write_text(
+    (project / "quorumdeck.yaml").write_text(
         MINIMAL.replace("main", "from-project"), encoding="utf-8"
     )
 
-    assert loader.discover(project) == project / "agentdeck.yaml"
+    assert loader.discover(project) == project / "quorumdeck.yaml"
     assert loader.load(start=project).specs()[0].id == "from-project"
 
 

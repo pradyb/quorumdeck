@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from agentdeck.config import secrets
+from quorumdeck.config import secrets
 
 
 @pytest.fixture(autouse=True)

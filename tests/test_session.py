@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from agentdeck.core.events import Usage
-from agentdeck.core.messages import Role, system
-from agentdeck.core.session import Session
+from quorumdeck.core.events import Usage
+from quorumdeck.core.messages import Role, system
+from quorumdeck.core.session import Session
 
 
 def test_user_prompt_reaches_every_thread():

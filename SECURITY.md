@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please report security issues privately through GitHub's
-[private vulnerability reporting](https://github.com/pradyb/agentdeck/security/advisories/new)
+[private vulnerability reporting](https://github.com/pradyb/quorumdeck/security/advisories/new)
 rather than opening a public issue. You can expect an acknowledgement within a
 few days.
 
@@ -14,7 +14,7 @@ few days.
 - `deck keys set` reads the key from a terminal prompt without echoing it.
 - Keys are exported into the process environment only for the lifetime of the
   process, so the engine can use them.
-- Saved sessions under `~/.local/share/agentdeck/sessions/` contain your prompts
+- Saved sessions under `~/.local/share/quorumdeck/sessions/` contain your prompts
   and the model's replies in plain text. Treat them like any other chat log.
 
 ## What it sends where

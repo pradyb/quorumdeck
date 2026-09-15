@@ -1,6 +1,6 @@
 """Engine adapters. Import from here, never from a vendor SDK directly."""
 
-from agentdeck.providers.base import (
+from quorumdeck.providers.base import (
     Chunk,
     Completed,
     CompletionRequest,
@@ -9,7 +9,7 @@ from agentdeck.providers.base import (
     ProviderEvent,
     Reasoning,
 )
-from agentdeck.providers.litellm_provider import LiteLLMProvider
+from quorumdeck.providers.litellm_provider import LiteLLMProvider
 
 __all__ = [
     "Chunk",

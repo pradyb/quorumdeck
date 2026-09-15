@@ -15,25 +15,25 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal
 from textual.widgets import Footer, Header, Input
 
-from agentdeck.config.loader import sessions_dir
-from agentdeck.config.schema import DeckFile
-from agentdeck.core.agent import Agent
-from agentdeck.core.events import (
+from quorumdeck.config.loader import sessions_dir
+from quorumdeck.config.schema import DeckFile
+from quorumdeck.core.agent import Agent
+from quorumdeck.core.events import (
     RunFailed,
     RunFinished,
     RunStarted,
     TextDelta,
 )
-from agentdeck.core.orchestrator import Orchestrator
-from agentdeck.providers import Provider, default_provider
-from agentdeck.tui.screens.help import HelpScreen
-from agentdeck.tui.widgets.agent_panel import AgentPanel
-from agentdeck.tui.widgets.status_bar import StatusBar
+from quorumdeck.core.orchestrator import Orchestrator
+from quorumdeck.providers import Provider, default_provider
+from quorumdeck.tui.screens.help import HelpScreen
+from quorumdeck.tui.widgets.agent_panel import AgentPanel
+from quorumdeck.tui.widgets.status_bar import StatusBar
 
 
-class AgentDeckApp(App[None]):
+class QuorumDeckApp(App[None]):
     CSS_PATH = "app.tcss"
-    TITLE = "agentdeck"
+    TITLE = "quorumdeck"
 
     BINDINGS = [
         ("ctrl+q", "quit", "Quit"),
@@ -139,4 +139,4 @@ class AgentDeckApp(App[None]):
 
 
 def run(config: DeckFile, provider: Provider | None = None) -> None:
-    AgentDeckApp(config, provider).run()
+    QuorumDeckApp(config, provider).run()

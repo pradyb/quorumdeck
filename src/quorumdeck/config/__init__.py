@@ -1,6 +1,6 @@
 """Configuration and credentials."""
 
-from agentdeck.config.loader import (
+from quorumdeck.config.loader import (
     ConfigError,
     config_home,
     discover,
@@ -9,7 +9,7 @@ from agentdeck.config.loader import (
     sessions_dir,
     user_config_path,
 )
-from agentdeck.config.schema import AgentConfig, DeckConfig, DeckFile, Defaults
+from quorumdeck.config.schema import AgentConfig, DeckConfig, DeckFile, Defaults
 
 __all__ = [
     "AgentConfig",

@@ -11,8 +11,8 @@ from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Protocol, TypeAlias, runtime_checkable
 
-from agentdeck.core.events import Usage
-from agentdeck.core.messages import Message
+from quorumdeck.core.events import Usage
+from quorumdeck.core.messages import Message
 
 
 @dataclass(frozen=True, slots=True)

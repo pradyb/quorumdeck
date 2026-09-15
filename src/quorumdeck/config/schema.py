@@ -10,8 +10,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from agentdeck.core.agent import AgentSpec
-from agentdeck.core.orchestrator import Pattern
+from quorumdeck.core.agent import AgentSpec
+from quorumdeck.core.orchestrator import Pattern
 
 SCHEMA_VERSION = 1
 

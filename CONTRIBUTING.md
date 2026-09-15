@@ -5,8 +5,8 @@ Thanks for taking a look.
 ## Getting set up
 
 ```bash
-git clone https://github.com/pradyb/agentdeck
-cd agentdeck
+git clone https://github.com/pradyb/quorumdeck
+cd quorumdeck
 uv sync
 uv run pytest
 ```

@@ -4,8 +4,8 @@ import asyncio
 
 import pytest
 
-from agentdeck.core.events import RunFinished, RunStarted, TextDelta
-from agentdeck.core.orchestrator import Orchestrator, Pattern, merge
+from quorumdeck.core.events import RunFinished, RunStarted, TextDelta
+from quorumdeck.core.orchestrator import Orchestrator, Pattern, merge
 from tests.conftest import FakeProvider
 
 

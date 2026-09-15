@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import pytest
 
-from agentdeck.config.schema import DeckFile
-from agentdeck.core.events import Usage
-from agentdeck.tui.app import AgentDeckApp
-from agentdeck.tui.widgets.agent_panel import AgentPanel
-from agentdeck.tui.widgets.status_bar import StatusBar
+from quorumdeck.config.schema import DeckFile
+from quorumdeck.core.events import Usage
+from quorumdeck.tui.app import QuorumDeckApp
+from quorumdeck.tui.widgets.agent_panel import AgentPanel
+from quorumdeck.tui.widgets.status_bar import StatusBar
 from tests.conftest import FakeProvider
 
 FANOUT = {
@@ -26,9 +26,9 @@ FANOUT = {
 
 
 @pytest.fixture
-def app() -> AgentDeckApp:
+def app() -> QuorumDeckApp:
     provider = FakeProvider(["one ", "two"], usage=Usage(10, 4, 0.002))
-    return AgentDeckApp(DeckFile.from_mapping(FANOUT), provider)
+    return QuorumDeckApp(DeckFile.from_mapping(FANOUT), provider)
 
 
 async def test_a_panel_is_composed_for_every_agent(app):
@@ -58,7 +58,7 @@ async def test_submitting_a_prompt_streams_into_every_panel(app):
 
 async def test_a_failed_turn_is_rendered_and_costs_nothing():
     config = DeckFile.from_mapping(FANOUT)
-    app = AgentDeckApp(config, FakeProvider(fail_with="nope"))
+    app = QuorumDeckApp(config, FakeProvider(fail_with="nope"))
     async with app.run_test() as pilot:
         await pilot.click("#prompt")
         await pilot.press(*"hi")

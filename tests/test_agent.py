@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from agentdeck.core.agent import Agent, AgentSpec
-from agentdeck.core.events import RunFailed, RunFinished, RunStarted, TextDelta
-from agentdeck.core.messages import Role, user
+from quorumdeck.core.agent import Agent, AgentSpec
+from quorumdeck.core.events import RunFailed, RunFinished, RunStarted, TextDelta
+from quorumdeck.core.messages import Role, user
 from tests.conftest import FakeProvider
 
 

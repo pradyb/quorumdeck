@@ -8,7 +8,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Markdown
 
 HELP = """\
-# agentdeck
+# quorumdeck
 
 | Key | Action |
 | --- | --- |

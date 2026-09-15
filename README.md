@@ -1,9 +1,9 @@
-# agentdeck
+# quorumdeck
 
 **A terminal console for running several AI agents — on different models, from different providers — side by side in one session.**
 
 Most terminal LLM clients give you one model at a time and a dropdown to switch.
-`agentdeck` starts from the opposite premise: the interesting thing is what happens
+`quorumdeck` starts from the opposite premise: the interesting thing is what happens
 when a Claude agent, a GPT agent and a local Llama agent all answer the same
 question at once, and you can see the answers, the latency and the cost next to
 each other.
@@ -45,16 +45,20 @@ Requires Python 3.11+.
 
 ```bash
 # Run without installing
-uvx agentdeck
+uvx quorumdeck@0.1.0a1
 
 # Or install
-uv tool install agentdeck     # or: pipx install agentdeck
+uv tool install quorumdeck --prerelease=allow    # or: pipx install --pip-args=--pre quorumdeck
 ```
+
+Releases are pre-1.0 alphas for now, so installers need to be told to accept
+them. Once the orchestration patterns below are all implemented, `0.1.0` proper
+drops the extra flag.
 
 ## Quick start
 
 ```bash
-deck config init                 # writes ~/.config/agentdeck/agents.yaml
+deck config init                 # writes ~/.config/quorumdeck/agents.yaml
 deck keys set anthropic          # prompts; stored in the OS keychain
 deck                             # launch the TUI
 ```
@@ -70,8 +74,8 @@ deck run --pattern fanout "Which index would you add here?"
 
 ## Configuring a deck
 
-`agents.yaml` is the whole interface. Precedence: `--config` → `./agentdeck.yaml`
-→ `~/.config/agentdeck/agents.yaml`.
+`agents.yaml` is the whole interface. Precedence: `--config` → `./quorumdeck.yaml`
+→ `~/.config/quorumdeck/agents.yaml`.
 
 ```yaml
 version: 1
@@ -137,7 +141,7 @@ like Ollama and credential-chain backends like Bedrock need no key at all.
 | --- | --- |
 | `enter` | Send |
 | `ctrl+l` | Clear panels |
-| `ctrl+s` | Save session to `~/.local/share/agentdeck/sessions/` |
+| `ctrl+s` | Save session to `~/.local/share/quorumdeck/sessions/` |
 | `f1` / `?` | Help |
 | `ctrl+q` | Quit |
 
@@ -148,7 +152,7 @@ like Ollama and credential-chain backends like Bedrock need no key at all.
 The layering is the load-bearing decision, not an aesthetic one:
 
 ```
-src/agentdeck/
+src/quorumdeck/
   core/        agent · orchestrator · session · events · messages · costs
   providers/   base (the port) · litellm_provider (the only adapter today)
   config/      schema (pydantic) · loader · secrets (keychain)
@@ -174,7 +178,7 @@ and changing nothing else.
 uv sync
 uv run pytest
 uv run ruff check .
-uv run textual run --dev agentdeck.tui.app:AgentDeckApp   # with devtools
+uv run textual run --dev quorumdeck.tui.app:QuorumDeckApp   # with devtools
 ```
 
 Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). The most useful
