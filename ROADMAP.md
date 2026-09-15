@@ -54,7 +54,11 @@ runtime. All five now do.
 ## 0.4 — the session layer
 
 - [ ] Resume a saved session (`deck --resume`), including into the TUI.
-- [ ] Export a session to Markdown, not only JSON.
+- [x] `deck export` — a saved session to JSONL, one fine-tuning-shaped line
+      per agent. `Session.save()`/`.load()` stay JSON on purpose; that's the
+      round-trippable shape `--resume` above will need, so export is a
+      one-way read of it, not a second save format.
+- [ ] Export a session to Markdown too, alongside JSONL.
 - [ ] Cost budget per deck, with a hard stop.
 
 ## Unscheduled, wanted

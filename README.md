@@ -230,6 +230,26 @@ for the session; there is no config option for it yet.
 
 ---
 
+## Exporting a session
+
+`ctrl+s` in the TUI saves the session -- every agent's own thread, plus totals
+-- as JSON. To get it into something else:
+
+```bash
+deck export 20260915-153422.json                 # one JSONL line per agent, to stdout
+deck export 20260915-153422.json --agent claude   # just one agent's thread
+deck export 20260915-153422.json -o out.jsonl     # to a file instead
+```
+
+A bare filename resolves under `~/.local/share/quorumdeck/sessions/`, since
+that's always where `ctrl+s` writes. Each line is
+`{"agent_id": ..., "messages": [...]}`, the same shape used for fine-tuning
+data, so a multi-agent session becomes one JSONL file with one line per
+model's own conversation -- ready for an eval harness or bulk analysis without
+writing a parser first.
+
+---
+
 ## Architecture
 
 The layering is the load-bearing decision, not an aesthetic one:
