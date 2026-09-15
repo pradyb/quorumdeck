@@ -115,3 +115,29 @@ def test_a_single_agent_deck_prints_its_reply_once(
 
     out = capsys.readouterr().out
     assert out.count("alphabeta") == 1
+
+
+def test_fanout_prints_replies_in_config_order(config_file, monkeypatch, capsys):
+    """Latency order varies between runs; the transcript of a deck should not."""
+    import asyncio
+
+    from quorumdeck.core.events import Usage
+    from quorumdeck.providers.base import Chunk, Completed
+
+    class Staggered:
+        """Makes the first agent in the config the last one to finish."""
+
+        name = "staggered"
+
+        async def stream(self, request):
+            slow = "gpt-5" in request.model  # agent "a", declared first
+            await asyncio.sleep(0.05 if slow else 0.0)
+            yield Chunk("declared-first" if slow else "declared-second")
+            yield Completed(usage=Usage(), finish_reason="stop")
+
+    monkeypatch.setattr("quorumdeck.cli.default_provider", Staggered)
+
+    assert main(["--config", str(config_file), "run", "hi"]) == 0
+
+    out = capsys.readouterr().out
+    assert out.index("declared-first") < out.index("declared-second")

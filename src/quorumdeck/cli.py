@@ -134,6 +134,15 @@ async def _stream_to_stdout(config: DeckFile, prompt: str) -> int:
     # several concurrent streams into one file handle shreds every answer into
     # a few words per header, so a deck prints each reply whole instead.
     live = len(agents) == 1
+
+    # Fanout starts every agent at once, so replies arrive in latency order --
+    # which varies run to run. Hold them and print in config order, matching the
+    # panel order in the TUI and making the same deck reproducible. Sequential
+    # patterns finish in the order the agents spoke, which is already the order
+    # worth reading, so they print as they go.
+    ordered = config.deck.pattern is Pattern.FANOUT
+    position = {agent.id: index for index, agent in enumerate(agents)}
+    held: list[tuple[int, str]] = []
     failures = 0
 
     try:
@@ -148,21 +157,29 @@ async def _stream_to_stdout(config: DeckFile, prompt: str) -> int:
                 case RunFinished(
                     agent_id=agent_id, model=model, text=text, usage=usage, elapsed_s=elapsed
                 ):
-                    if not live:
-                        # RunFinished carries the whole reply, so a grouped
-                        # print needs no buffering of its own.
-                        print(f"\n── {labels[agent_id]} · {model} ──\n{text}", flush=True)
-                    print(
+                    footer = (
                         f"\n   [{usage.input_tokens}→{usage.output_tokens} tok · "
-                        f"{format_usd(usage.cost_usd)} · {elapsed:.1f}s]",
-                        flush=True,
+                        f"{format_usd(usage.cost_usd)} · {elapsed:.1f}s]"
                     )
+                    if live:
+                        print(footer, flush=True)
+                    else:
+                        # RunFinished carries the whole reply, so grouping needs
+                        # no buffer of deltas of its own.
+                        block = f"\n── {labels[agent_id]} · {model} ──\n{text}{footer}"
+                        if ordered:
+                            held.append((position[agent_id], block))
+                        else:
+                            print(block, flush=True)
                 case RunFailed(agent_id=agent_id, error=error):
                     failures += 1
                     print(f"\n   error ({labels[agent_id]}): {error}", file=sys.stderr)
     except NotImplementedError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+
+    for _, block in sorted(held, key=lambda item: item[0]):
+        print(block, flush=True)
 
     total = session.usage
     print(
