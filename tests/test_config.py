@@ -220,3 +220,43 @@ def test_with_pattern_rejects_a_pattern_the_deck_cannot_run():
 
     with pytest.raises(ValidationError, match="takes exactly one agent"):
         deck.with_pattern(Pattern.SINGLE)
+
+
+def test_resume_session_loads_matching_history(tmp_path):
+    from quorumdeck.core.session import Session
+
+    session = Session(["a", "b"])
+    session.add_user("hi")
+    saved = session.save(tmp_path / "s.json")
+
+    resumed = loader.resume_session(saved, agent_ids=["a", "b"], max_messages=50)
+
+    assert [m.content for m in resumed.thread("a")] == ["hi"]
+    assert resumed.max_messages == 50  # not Session's own default of 200
+
+
+def test_resume_session_resolves_a_bare_filename_under_sessions_dir(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from quorumdeck.core.session import Session
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    Session(["a"]).save(tmp_path / "quorumdeck" / "sessions" / "s.json")
+
+    resumed = loader.resume_session(Path("s.json"), agent_ids=["a"], max_messages=200)
+
+    assert resumed.agent_ids == ["a"]
+
+
+def test_resume_session_rejects_a_mismatched_deck(tmp_path):
+    from quorumdeck.core.session import Session
+
+    saved = Session(["a", "b"]).save(tmp_path / "s.json")
+
+    with pytest.raises(ConfigError, match="was saved with agents"):
+        loader.resume_session(saved, agent_ids=["a", "c"], max_messages=200)
+
+
+def test_resume_session_reports_a_missing_file(tmp_path):
+    with pytest.raises(ConfigError, match="no session file"):
+        loader.resume_session(tmp_path / "nope.json", agent_ids=["a"], max_messages=200)

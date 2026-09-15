@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from textual.containers import VerticalScroll
@@ -17,6 +18,7 @@ if TYPE_CHECKING:
 from quorumdeck.core.agent import AgentSpec
 from quorumdeck.core.costs import format_usd
 from quorumdeck.core.events import Usage
+from quorumdeck.core.messages import Message, Role
 
 
 class AgentPanel(Widget):
@@ -47,6 +49,21 @@ class AgentPanel(Widget):
 
     async def add_user(self, text: str) -> None:
         await self.transcript.mount(Static(f"› {text}", classes="user-turn"))
+
+    async def replay(self, messages: Sequence[Message]) -> None:
+        """Rebuild this panel's transcript from a resumed session's history.
+
+        Session never persisted per-turn usage or elapsed time -- only a
+        running grand total -- so a replayed reply carries no cost/latency
+        footer. Only the conversation itself comes back; the status bar's
+        total is restored separately, from the session's own usage.
+        """
+        for message in messages:
+            if message.role is Role.USER:
+                await self.add_user(message.content)
+            elif message.role is Role.ASSISTANT:
+                await self.transcript.mount(Markdown(message.content))
+        self.transcript.scroll_end(animate=False)
 
     def begin_assistant(self) -> None:
         """Mark the panel busy. The reply widget is created on first output."""

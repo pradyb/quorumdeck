@@ -7,12 +7,14 @@ in the working directory, then the per-user file under ``$XDG_CONFIG_HOME``.
 from __future__ import annotations
 
 import os
+from collections.abc import Sequence
 from pathlib import Path
 
 import yaml
 from pydantic import ValidationError
 
 from quorumdeck.config.schema import DeckFile
+from quorumdeck.core.session import Session
 
 APP_NAME = "quorumdeck"
 PROJECT_FILENAMES = ("quorumdeck.yaml", "quorumdeck.yml", ".quorumdeck/agents.yaml")
@@ -40,6 +42,38 @@ def data_home() -> Path:
 
 def sessions_dir() -> Path:
     return data_home() / "sessions"
+
+
+def resume_session(path: Path, *, agent_ids: Sequence[str], max_messages: int) -> Session:
+    """Load a previously saved session, checked against the active deck.
+
+    Raises :class:`ConfigError`, same contract as :func:`load`. The agent ids
+    must match exactly -- a session saved with a different deck has threads
+    for agents that don't exist here, or is missing ones that do, and either
+    way resuming it would silently lose history rather than continue it.
+    """
+    resolved = path if path.is_file() else sessions_dir() / path.name
+    if not resolved.is_file():
+        raise ConfigError(f"no session file at {path}")
+
+    try:
+        session = Session.load(resolved)
+    except (OSError, ValueError) as exc:
+        raise ConfigError(str(exc)) from exc
+
+    wanted = set(agent_ids)
+    got = set(session.agent_ids)
+    if got != wanted:
+        raise ConfigError(
+            f"{resolved} was saved with agents {', '.join(sorted(got))}, but the "
+            f"active config has {', '.join(sorted(wanted))} -- resume needs the "
+            "same deck it was saved from"
+        )
+
+    # save() never persisted max_messages, so without this it would silently
+    # reset to Session's own default instead of this deck's configured one.
+    session.max_messages = max_messages
+    return session
 
 
 def discover(start: Path | None = None) -> Path | None:

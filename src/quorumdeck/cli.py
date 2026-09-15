@@ -13,6 +13,7 @@ import logging
 import os
 import sys
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -37,6 +38,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"quorumdeck {__version__}")
     parser.add_argument("-c", "--config", type=Path, help="path to agents.yaml")
     parser.add_argument("-v", "--verbose", action="store_true", help="debug logging")
+    parser.add_argument(
+        "--resume",
+        type=Path,
+        help="continue a saved session (see `deck sessions list`); works with the TUI or `run`",
+    )
 
     sub = parser.add_subparsers(dest="command")
 
@@ -46,6 +52,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--pattern",
         choices=[str(p) for p in Pattern],
         help="override the deck pattern for this run",
+    )
+    run_cmd.add_argument(
+        "--save",
+        action="store_true",
+        help="save the session afterward (see `deck sessions list`), so a later "
+        "`--resume` has something to continue",
     )
 
     sub.add_parser("agents", help="list the agents in the active config")
@@ -120,7 +132,7 @@ def _cmd_tui(args: argparse.Namespace) -> int:
     _prepare_environment(config)
     from quorumdeck.tui.app import run  # imported late: Textual is not needed for `run`
 
-    run(config)
+    run(config, resume=args.resume)
     return 0
 
 
@@ -132,10 +144,14 @@ def _cmd_run(args: argparse.Namespace) -> int:
         except ValidationError as exc:
             raise ConfigError(f"--pattern {args.pattern}: {loader.render_errors(exc)}") from exc
     _prepare_environment(config)
-    return asyncio.run(_stream_to_stdout(config, " ".join(args.prompt)))
+    return asyncio.run(
+        _stream_to_stdout(config, " ".join(args.prompt), resume=args.resume, save=args.save)
+    )
 
 
-async def _stream_to_stdout(config: DeckFile, prompt: str) -> int:
+async def _stream_to_stdout(
+    config: DeckFile, prompt: str, *, resume: Path | None = None, save: bool = False
+) -> int:
     provider = default_provider()
     agents = [
         Agent(spec, provider, timeout_s=config.defaults.timeout_s) for spec in config.specs()
@@ -146,7 +162,14 @@ async def _stream_to_stdout(config: DeckFile, prompt: str) -> int:
         rounds=config.deck.rounds,
         judge_id=config.deck.judge,
     )
-    session = orchestrator.new_session(max_messages=config.defaults.max_messages)
+    if resume is not None:
+        session = loader.resume_session(
+            resume, agent_ids=orchestrator.agent_ids, max_messages=config.defaults.max_messages
+        )
+        prior = sum(len(t) for _, t in session)
+        print(f"resumed {resume} ({prior} prior messages)", file=sys.stderr)
+    else:
+        session = orchestrator.new_session(max_messages=config.defaults.max_messages)
     labels = {a.id: a.spec.label for a in agents}
 
     # Live streaming only makes sense when one agent is speaking. Interleaving
@@ -207,6 +230,13 @@ async def _stream_to_stdout(config: DeckFile, prompt: str) -> int:
         f"\ntotal: {total.total_tokens} tok · {format_usd(total.cost_usd)}",
         file=sys.stderr,
     )
+
+    if save:
+        stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        saved_path = loader.sessions_dir() / f"{stamp}.json"
+        session.save(saved_path)
+        print(f"saved {saved_path}", file=sys.stderr)
+
     return 1 if failures else 0
 
 

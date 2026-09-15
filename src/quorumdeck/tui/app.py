@@ -15,6 +15,7 @@ from textual.app import App, ComposeResult
 from textual.containers import Horizontal
 from textual.widgets import Footer, Header, Input
 
+from quorumdeck.config import loader
 from quorumdeck.config.loader import sessions_dir
 from quorumdeck.config.schema import DeckFile
 from quorumdeck.core.agent import Agent
@@ -43,7 +44,13 @@ class QuorumDeckApp(App[None]):
         ("f1,question_mark", "help", "Help"),
     ]
 
-    def __init__(self, config: DeckFile, provider: Provider | None = None) -> None:
+    def __init__(
+        self,
+        config: DeckFile,
+        provider: Provider | None = None,
+        *,
+        resume: Path | None = None,
+    ) -> None:
         super().__init__()
         # A deck is read at a glance across several panels at once, so it
         # wants a theme with real contrast between panes rather than
@@ -62,7 +69,20 @@ class QuorumDeckApp(App[None]):
             rounds=config.deck.rounds,
             judge_id=config.deck.judge,
         )
-        self.session = self.orchestrator.new_session(max_messages=config.defaults.max_messages)
+        if resume is not None:
+            # Raises ConfigError, same contract as a bad agents.yaml -- this
+            # runs before Textual takes over the terminal, so it surfaces as
+            # a plain stderr message, not a broken screen.
+            self.session = loader.resume_session(
+                resume,
+                agent_ids=self.orchestrator.agent_ids,
+                max_messages=config.defaults.max_messages,
+            )
+        else:
+            self.session = self.orchestrator.new_session(
+                max_messages=config.defaults.max_messages
+            )
+        self._resumed = resume is not None
         if config.deck.title:
             self.sub_title = config.deck.title
 
@@ -75,10 +95,15 @@ class QuorumDeckApp(App[None]):
         yield Input(placeholder="Ask the deck…", id="prompt")
         yield Footer()
 
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
         status = self.query_one(StatusBar)
         status.pattern = str(self.config.deck.pattern)
         status.agents = len(self.agents)
+        if self._resumed:
+            for agent in self.agents:
+                await self.panel(agent.id).replay(self.session.thread(agent.id))
+            status.usage = self.session.usage
+            self.notify(f"resumed {sum(len(t) for _, t in self.session)} prior messages")
         self.query_one("#prompt", Input).focus()
 
     def panel(self, agent_id: str) -> AgentPanel:
@@ -150,5 +175,7 @@ class QuorumDeckApp(App[None]):
         self.push_screen(HelpScreen())
 
 
-def run(config: DeckFile, provider: Provider | None = None) -> None:
-    QuorumDeckApp(config, provider).run()
+def run(
+    config: DeckFile, provider: Provider | None = None, *, resume: Path | None = None
+) -> None:
+    QuorumDeckApp(config, provider, resume=resume).run()

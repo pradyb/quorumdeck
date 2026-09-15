@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import typing
+
 import pytest
 
 from quorumdeck.cli import main
@@ -310,3 +312,88 @@ def test_sessions_list_reports_an_unreadable_file_without_stopping(
     captured = capsys.readouterr()
     assert "broken.json" in captured.err and "unreadable" in captured.err
     assert "good.json" in captured.out
+
+
+def test_run_resume_continues_a_saved_session(tmp_path, monkeypatch, capsys):
+    from quorumdeck.core.session import Session
+
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    config_path = tmp_path / "quorumdeck.yaml"
+    config_path.write_text(
+        "version: 1\nagents:\n  - {id: solo, model: openai/gpt-5}\n", encoding="utf-8"
+    )
+
+    session = Session(["solo"])
+    session.add_user("earlier question")
+    session.add_assistant("solo", "earlier answer")
+    saved = session.save(tmp_path / "s.json")
+
+    from quorumdeck.core.events import Usage
+    from quorumdeck.providers.base import Chunk, Completed
+
+    class Capturing:
+        name = "capturing"
+        seen_messages: typing.ClassVar[list] = []
+
+        async def stream(self, request):
+            Capturing.seen_messages = list(request.messages)
+            yield Chunk("new answer")
+            yield Completed(usage=Usage(), finish_reason="stop")
+
+    monkeypatch.setattr("quorumdeck.cli.default_provider", Capturing)
+
+    code = main(["--config", str(config_path), "--resume", str(saved), "run", "new question"])
+
+    assert code == 0
+    contents = [m.content for m in Capturing.seen_messages]
+    assert contents == ["earlier question", "earlier answer", "new question"]
+
+    err = capsys.readouterr().err
+    assert "resumed" in err and "1 prior messages" not in err  # 2 prior messages, not 1
+    assert "2 prior messages" in err
+
+
+def test_run_resume_refuses_a_session_from_a_different_deck(tmp_path, monkeypatch, capsys):
+    from quorumdeck.core.session import Session
+
+    config_path = tmp_path / "quorumdeck.yaml"
+    config_path.write_text(
+        "version: 1\nagents:\n  - {id: solo, model: openai/gpt-5}\n", encoding="utf-8"
+    )
+    saved = Session(["someone-else"]).save(tmp_path / "s.json")
+
+    code = main(["--config", str(config_path), "--resume", str(saved), "run", "hi"])
+
+    assert code == 1
+    assert "was saved with agents" in capsys.readouterr().err
+
+
+def test_run_save_writes_a_resumable_session(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+    config_path = tmp_path / "quorumdeck.yaml"
+    config_path.write_text(
+        "version: 1\nagents:\n  - {id: solo, model: openai/gpt-5}\n", encoding="utf-8"
+    )
+
+    from quorumdeck.core.events import Usage
+    from quorumdeck.providers.base import Chunk, Completed
+
+    class Once:
+        name = "once"
+
+        async def stream(self, request):
+            yield Chunk("ok")
+            yield Completed(usage=Usage(), finish_reason="stop")
+
+    monkeypatch.setattr("quorumdeck.cli.default_provider", Once)
+
+    assert main(["--config", str(config_path), "run", "--save", "hi"]) == 0
+
+    err = capsys.readouterr().err
+    assert "saved" in err
+
+    assert main(["sessions", "list"]) == 0
+    out = capsys.readouterr().out
+    assert "1 agent(s)" in out

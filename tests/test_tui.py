@@ -200,3 +200,61 @@ async def test_a_debate_deck_shows_the_critique_and_revision():
         assert len(critic_bubbles) == 2
         assert "Critique" in str(author_bubbles[-1].content)
         assert "Candidate answer" in str(critic_bubbles[-1].content)
+
+
+async def test_resuming_replays_history_into_every_panel(tmp_path):
+    from quorumdeck.core.session import Session
+
+    session = Session(["a", "b"])
+    session.add_user("earlier question")
+    session.add_assistant("a", "a's earlier answer")
+    session.add_assistant("b", "b's earlier answer")
+    saved = session.save(tmp_path / "s.json")
+
+    app = QuorumDeckApp(DeckFile.from_mapping(FANOUT), FakeProvider(["ignored"]), resume=saved)
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        assert [m.content for m in pilot.app.session.thread("a")] == [
+            "earlier question",
+            "a's earlier answer",
+        ]
+
+        a_panel = pilot.app.query_one("#panel-a", AgentPanel)
+        b_panel = pilot.app.query_one("#panel-b", AgentPanel)
+        # One user bubble (the replayed question) and one reply per panel.
+        assert len(list(a_panel.query(".user-turn"))) == 1
+        assert len(list(a_panel.query("Markdown"))) == 1
+        assert len(list(b_panel.query(".user-turn"))) == 1
+
+
+async def test_resuming_restores_the_status_bars_running_total():
+    from quorumdeck.core.session import Session
+
+    session = Session(["a", "b"])
+    session.record_usage(Usage(100, 50, 0.05))
+
+    class NothingProvider:
+        name = "nothing"
+
+        async def stream(self, request):
+            return
+            yield
+
+    app = QuorumDeckApp(DeckFile.from_mapping(FANOUT), NothingProvider())
+    app.session = session  # swap in a pre-populated session without touching disk
+    app._resumed = True
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert pilot.app.query_one(StatusBar).usage == Usage(100, 50, 0.05)
+
+
+def test_a_resumed_session_must_match_the_active_decks_agents(tmp_path):
+    from quorumdeck.config.loader import ConfigError
+    from quorumdeck.core.session import Session
+
+    saved = Session(["someone-else"]).save(tmp_path / "s.json")
+
+    with pytest.raises(ConfigError, match="was saved with agents"):
+        QuorumDeckApp(DeckFile.from_mapping(FANOUT), FakeProvider(), resume=saved)
