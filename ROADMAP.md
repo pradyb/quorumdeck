@@ -53,11 +53,20 @@ runtime. All five now do.
 
 ## 0.4 — the session layer
 
-- [ ] Resume a saved session (`deck --resume`), including into the TUI.
-- [x] `deck export` — a saved session to JSONL, one fine-tuning-shaped line
-      per agent. `Session.save()`/`.load()` stay JSON on purpose; that's the
-      round-trippable shape `--resume` above will need, so export is a
-      one-way read of it, not a second save format.
+- [x] Resume a saved session (`deck --resume`), into both `run` and the TUI.
+      Refuses outright if the saved agent ids don't exactly match the active
+      deck's, rather than silently losing or misassigning history. The TUI
+      replays the conversation into every panel on mount, but not historical
+      per-turn cost/latency -- Session only ever kept a running grand total,
+      never a per-turn figure, so there is nothing to replay there.
+      `run --save` (writes the session afterward, same as ctrl+s) shipped
+      alongside it -- without it, `run --resume` could only ever continue a
+      session the TUI had started, never chain two headless runs together.
+- [x] `deck export` and `deck sessions list` -- a saved session to JSONL, one
+      fine-tuning-shaped line per agent, and a listing of what is available to
+      resume or export. `Session.save()`/`.load()` stay JSON on purpose;
+      that's the round-trippable shape resume needs, so export is a one-way
+      read of it, not a second save format.
 - [ ] Export a session to Markdown too, alongside JSONL.
 - [ ] Cost budget per deck, with a hard stop.
 

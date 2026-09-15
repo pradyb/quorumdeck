@@ -230,10 +230,37 @@ for the session; there is no config option for it yet.
 
 ---
 
-## Exporting a session
+## Sessions
 
 `ctrl+s` in the TUI saves the session -- every agent's own thread, plus totals
--- as JSON. To get it into something else:
+-- as JSON to `~/.local/share/quorumdeck/sessions/`. `deck run` doesn't save
+one unless asked:
+
+```bash
+deck run "..." --save          # write a session too, so --resume has something
+deck sessions list             # everything saved, newest first
+```
+
+A bare filename in any of the commands below resolves under that directory,
+so you don't need the full path for something you just saved.
+
+**Resume** picks a saved session back up instead of starting fresh, in either
+the TUI or a headless run:
+
+```bash
+deck --resume 20260915-153422.json               # reopens the TUI with history refilled
+deck --resume 20260915-153422.json run "..." --save   # one more headless turn, then re-save
+```
+
+It refuses outright if the saved session's agents don't exactly match the
+active config's -- resuming a mismatched deck would silently lose or
+misassign history rather than continue it. The TUI replays the conversation
+into every panel, but not the historical per-turn cost or latency figures:
+`Session` only ever kept a running grand total across the whole session, not
+a per-turn breakdown, so there's nothing to replay there -- only the running
+total itself comes back, in the status bar.
+
+**Export** turns a saved session into JSONL, for anything outside quorumdeck:
 
 ```bash
 deck export 20260915-153422.json                 # one JSONL line per agent, to stdout
@@ -241,12 +268,10 @@ deck export 20260915-153422.json --agent claude   # just one agent's thread
 deck export 20260915-153422.json -o out.jsonl     # to a file instead
 ```
 
-A bare filename resolves under `~/.local/share/quorumdeck/sessions/`, since
-that's always where `ctrl+s` writes. Each line is
-`{"agent_id": ..., "messages": [...]}`, the same shape used for fine-tuning
-data, so a multi-agent session becomes one JSONL file with one line per
-model's own conversation -- ready for an eval harness or bulk analysis without
-writing a parser first.
+Each line is `{"agent_id": ..., "messages": [...]}`, the same shape used for
+fine-tuning data, so a multi-agent session becomes one JSONL file with one
+line per model's own conversation -- ready for an eval harness or bulk
+analysis without writing a parser first.
 
 ---
 
