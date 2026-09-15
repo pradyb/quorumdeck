@@ -141,3 +141,19 @@ def test_fanout_prints_replies_in_config_order(config_file, monkeypatch, capsys)
 
     out = capsys.readouterr().out
     assert out.index("declared-first") < out.index("declared-second")
+
+
+def test_keys_set_rejects_an_unknown_provider_before_asking_for_the_key(monkeypatch, capsys):
+    """Learning the name was wrong after typing a secret is learning it too late."""
+    import getpass
+
+    def refuse(_prompt):
+        raise AssertionError("the user was prompted for a key that could never be used")
+
+    monkeypatch.setattr(getpass, "getpass", refuse)
+
+    assert main(["keys", "set", "openrouterr"]) == 1
+
+    err = capsys.readouterr().err
+    assert "unknown provider 'openrouterr'" in err
+    assert "did you mean 'openrouter'" in err

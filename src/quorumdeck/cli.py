@@ -235,8 +235,11 @@ def _cmd_keys(args: argparse.Namespace) -> int:
             if not args.provider:
                 print("error: `deck keys set` needs a provider name", file=sys.stderr)
                 return 2
-            value = getpass.getpass(f"API key for {args.provider}: ")
             try:
+                # Before the prompt: a rejected name after you have typed a
+                # secret means you have typed it into the void.
+                secrets.ensure_storable(args.provider)
+                value = getpass.getpass(f"API key for {args.provider}: ")
                 secrets.set_key(args.provider, value)
             except (ValueError, secrets.KeyringUnavailable) as exc:
                 print(f"error: {exc}", file=sys.stderr)

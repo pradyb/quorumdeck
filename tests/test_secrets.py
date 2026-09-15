@@ -107,3 +107,29 @@ def test_the_readme_key_table_matches_the_code():
 
     for provider in secrets.NO_KEY_NEEDED:
         assert f"`{provider}`" in text, f"README does not mention {provider}"
+
+
+def test_a_key_is_only_storable_where_it_would_be_used():
+    secrets.ensure_storable("openrouter")  # listed: fine
+
+    with pytest.raises(ValueError, match="nothing to store"):
+        secrets.ensure_storable("ollama")  # authenticates over a local socket
+
+    with pytest.raises(ValueError, match="unknown provider"):
+        secrets.ensure_storable("not-a-provider")
+
+
+def test_a_near_miss_suggests_the_provider_you_meant():
+    with pytest.raises(ValueError, match="did you mean 'openrouter'"):
+        secrets.ensure_storable("openrouterr")
+
+
+def test_set_key_refuses_a_provider_it_could_never_export(monkeypatch):
+    """Belt and braces: the CLI checks first, but the API must not be bypassable."""
+    called = []
+    monkeypatch.setattr(secrets, "_keyring", lambda: called.append(1))
+
+    with pytest.raises(ValueError, match="unknown provider"):
+        secrets.set_key("not-a-provider", "sk-real-looking-secret")
+
+    assert not called  # never reached the keychain

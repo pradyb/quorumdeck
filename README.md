@@ -193,8 +193,11 @@ deck --config examples/judge.yaml
 
 A model id with no prefix at all (`gpt-5` rather than `openai/gpt-5`) is treated
 as OpenAI, matching LiteLLM's own default. For a prefix outside this table, set
-whatever variable LiteLLM expects for that backend yourself — `deck keys` only
-manages the providers listed above.
+whatever variable LiteLLM expects for that backend yourself. `deck keys set`
+rejects a provider outside this table rather than storing a key it could never
+export, and it does so before prompting, so a typo never costs you a pasted
+secret. `deck keys rm` stays permissive, so an entry stored under an old name
+can still be cleaned up.
 
 `ollama`, `ollama_chat`, `vllm`, `lm_studio`, `bedrock` and `sagemaker` need no
 key at all: they authenticate over a local socket or through a credential chain.

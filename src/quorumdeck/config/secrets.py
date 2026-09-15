@@ -9,6 +9,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Iterable
+from difflib import get_close_matches
 
 log = logging.getLogger(__name__)
 
@@ -90,7 +91,29 @@ def get(provider: str) -> str | None:
         return None
 
 
+def ensure_storable(provider: str) -> None:
+    """Raise unless a key stored for ``provider`` would actually be used.
+
+    Checked before the key is asked for, not after: being told the provider name
+    was wrong is only useful before you have typed a secret.
+    """
+    if provider in NO_KEY_NEEDED:
+        raise ValueError(
+            f"'{provider}' authenticates without an API key, so there is nothing to store"
+        )
+    if provider not in ENV_VARS:
+        close = get_close_matches(provider, known_providers(), n=1)
+        hint = f" -- did you mean '{close[0]}'?" if close else ""
+        raise ValueError(
+            f"unknown provider '{provider}'{hint}\n"
+            "  `deck keys list` shows every provider a key can be stored for.\n"
+            "  For any other backend set its environment variable yourself: "
+            "there is no variable name to export this one to."
+        )
+
+
 def set_key(provider: str, value: str) -> None:
+    ensure_storable(provider)
     if not value.strip():
         raise ValueError("refusing to store an empty key")
     _keyring().set_password(SERVICE, provider, value)
