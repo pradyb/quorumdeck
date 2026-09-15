@@ -44,6 +44,11 @@ class QuorumDeckApp(App[None]):
 
     def __init__(self, config: DeckFile, provider: Provider | None = None) -> None:
         super().__init__()
+        # A deck is read at a glance across several panels at once, so it
+        # wants a theme with real contrast between panes rather than
+        # Textual's flat default. ^p palette still switches it per session;
+        # this only sets what a fresh deck opens with.
+        self.theme = "tokyo-night"
         self.config = config
         engine = provider or default_provider()
         specs = config.specs()

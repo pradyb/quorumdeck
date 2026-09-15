@@ -217,6 +217,11 @@ environment, the keychain, or nowhere.
 | `f1` / `?` | Help |
 | `ctrl+q` | Quit |
 
+A deck opens in Textual's `tokyo-night` theme -- several panels are read at
+once, and it holds contrast between them better than Textual's default. The
+command palette (`ctrl+p`) switches to any of Textual's other built-in themes
+for the session; there is no config option for it yet.
+
 ---
 
 ## Architecture

@@ -127,3 +127,11 @@ async def test_the_prompt_and_the_footer_do_not_share_a_row(app):
         prompt_rows = range(prompt.region.y, prompt.region.y + prompt.region.height)
         assert footer.region.y not in prompt_rows
         assert prompt.region.height == 3  # top border + content + bottom border, all present
+
+
+async def test_the_deck_opens_in_tokyo_night(app):
+    """Several panels are read at once; the default theme needs real contrast."""
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert pilot.app.theme == "tokyo-night"
+        assert pilot.app.current_theme.name == "tokyo-night"
