@@ -1,0 +1,35 @@
+# Three small local models, same prompt, no API key and no network.
+#
+# The `ollama_chat/` prefix routes to Ollama's /api/chat endpoint, which handles
+# multi-turn conversations properly; plain `ollama/` uses the older completion
+# endpoint and flattens the thread into one string.
+#
+#   ollama serve
+#   deck --config examples/ollama.yaml
+version: 1
+
+deck:
+  pattern: fanout
+  title: Local bench
+
+defaults:
+  temperature: 0.7
+  # Small models on a laptop are slower than a hosted frontier model, not faster.
+  timeout_s: 300
+
+agents:
+  - id: qwen3b
+    name: Qwen 2.5 3B
+    model: "ollama_chat/qwen2.5:3b"
+    api_base: http://localhost:11434
+
+  - id: qwen7b
+    name: Qwen 2.5 7B
+    model: "ollama_chat/qwen2.5:7b-instruct"
+    api_base: http://localhost:11434
+
+  - id: coder
+    name: Qwen Coder 1.5B
+    model: "ollama_chat/qwen2.5-coder:1.5b"
+    api_base: http://localhost:11434
+    system_prompt: You are a terse coding assistant. Answer with code first.

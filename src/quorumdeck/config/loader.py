@@ -75,12 +75,12 @@ def load(path: Path | None = None, *, start: Path | None = None) -> DeckFile:
     try:
         return DeckFile.from_mapping(raw)
     except ValidationError as exc:
-        raise ConfigError(f"{resolved}: {_render(exc)}") from exc
+        raise ConfigError(f"{resolved}: {render_errors(exc)}") from exc
     except ValueError as exc:
         raise ConfigError(f"{resolved}: {exc}") from exc
 
 
-def _render(exc: ValidationError) -> str:
+def render_errors(exc: ValidationError) -> str:
     """Pydantic's default repr is dense; flatten it to one line per problem."""
     lines = []
     for error in exc.errors():
@@ -116,7 +116,7 @@ agents:
 #
 #  - id: local
 #    name: Local
-#    model: ollama/llama3.3
+#    model: ollama_chat/llama3.3
 #    api_base: http://localhost:11434
 """
 

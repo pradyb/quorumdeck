@@ -100,11 +100,26 @@ agents:
 
   - id: local
     name: Local
-    model: ollama/llama3.3
+    model: ollama_chat/llama3.3
     api_base: http://localhost:11434
 ```
 
 Model ids are LiteLLM ids: `provider/model`. More in [`examples/`](examples/).
+
+### Fully local
+
+[`examples/ollama.yaml`](examples/ollama.yaml) compares three small models on a
+running Ollama — no API key, no account, and no network:
+
+```bash
+ollama serve
+deck --config examples/ollama.yaml
+```
+
+Use the `ollama_chat/` prefix rather than `ollama/`: it routes to Ollama's
+`/api/chat` endpoint, which keeps a multi-turn conversation intact. A deck whose
+agents are all local skips LiteLLM's remote price list too, so it stays offline
+end to end.
 
 ### Orchestration patterns
 

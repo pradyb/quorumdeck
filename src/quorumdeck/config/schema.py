@@ -126,6 +126,17 @@ class DeckFile(BaseModel):
     def specs(self) -> list[AgentSpec]:
         return [a.to_spec(self.defaults) for a in self.agents]
 
+    def with_pattern(self, pattern: Pattern) -> DeckFile:
+        """Return a copy running ``pattern``, re-checking the deck rules.
+
+        ``model_copy`` would skip validation, which is how ``--pattern single``
+        used to slip past the rule rejecting it on a multi-agent deck and get
+        quietly downgraded to one agent.
+        """
+        data = self.model_dump()
+        data["deck"]["pattern"] = pattern
+        return DeckFile.model_validate(data)
+
     @classmethod
     def from_mapping(cls, data: Any) -> DeckFile:
         if not isinstance(data, dict):

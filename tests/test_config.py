@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from quorumdeck.config import loader
 from quorumdeck.config.loader import ConfigError
@@ -146,3 +147,33 @@ def test_shipped_examples_are_valid():
     assert found, "examples/ should not be empty"
     for path in found:
         loader.load(path)
+
+
+def test_with_pattern_keeps_the_agents_and_switches_the_pattern():
+    deck = DeckFile.from_mapping(
+        {
+            "version": 1,
+            "deck": {"pattern": "fanout"},
+            "agents": [{"id": "a", "model": "x/y"}, {"id": "b", "model": "x/z"}],
+        }
+    )
+
+    switched = deck.with_pattern(Pattern.DEBATE)
+
+    assert switched.deck.pattern is Pattern.DEBATE
+    assert [a.id for a in switched.agents] == ["a", "b"]
+    assert deck.deck.pattern is Pattern.FANOUT  # the original is untouched
+
+
+def test_with_pattern_rejects_a_pattern_the_deck_cannot_run():
+    """model_copy would skip this check and quietly run one of the two agents."""
+    deck = DeckFile.from_mapping(
+        {
+            "version": 1,
+            "deck": {"pattern": "fanout"},
+            "agents": [{"id": "a", "model": "x/y"}, {"id": "b", "model": "x/z"}],
+        }
+    )
+
+    with pytest.raises(ValidationError, match="takes exactly one agent"):
+        deck.with_pattern(Pattern.SINGLE)

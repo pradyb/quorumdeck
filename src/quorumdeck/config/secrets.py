@@ -38,6 +38,10 @@ NO_KEY_NEEDED = frozenset(
     {"ollama", "ollama_chat", "bedrock", "sagemaker", "vllm", "lm_studio"}
 )
 
+# The subset that runs on this machine. A deck made only of these should not
+# reach the network at all -- not even for a price list.
+LOCAL_PROVIDERS = frozenset({"ollama", "ollama_chat", "vllm", "lm_studio"})
+
 
 class KeyringUnavailable(RuntimeError):
     """No usable keychain backend on this machine."""
@@ -132,3 +136,9 @@ def apply_to_env(models: Iterable[str]) -> list[str]:
         elif env_var:
             os.environ[env_var] = key
     return sorted(missing)
+
+
+def all_local(models: Iterable[str]) -> bool:
+    """True when every model in the deck is served from this machine."""
+    listed = list(models)
+    return bool(listed) and all(provider_of(m) in LOCAL_PROVIDERS for m in listed)

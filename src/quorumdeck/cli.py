@@ -10,9 +10,12 @@ import argparse
 import asyncio
 import getpass
 import logging
+import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+
+from pydantic import ValidationError
 
 from quorumdeck import __version__
 from quorumdeck.config import loader, secrets
@@ -95,7 +98,7 @@ def _load(args: argparse.Namespace) -> DeckFile:
 
 def _cmd_tui(args: argparse.Namespace) -> int:
     config = _load(args)
-    _warn_missing_keys(config)
+    _prepare_environment(config)
     from quorumdeck.tui.app import run  # imported late: Textual is not needed for `run`
 
     run(config)
@@ -105,10 +108,11 @@ def _cmd_tui(args: argparse.Namespace) -> int:
 def _cmd_run(args: argparse.Namespace) -> int:
     config = _load(args)
     if args.pattern:
-        config = config.model_copy(
-            update={"deck": config.deck.model_copy(update={"pattern": Pattern(args.pattern)})}
-        )
-    _warn_missing_keys(config)
+        try:
+            config = config.with_pattern(Pattern(args.pattern))
+        except ValidationError as exc:
+            raise ConfigError(f"--pattern {args.pattern}: {loader.render_errors(exc)}") from exc
+    _prepare_environment(config)
     return asyncio.run(_stream_to_stdout(config, " ".join(args.prompt)))
 
 
@@ -126,33 +130,36 @@ async def _stream_to_stdout(config: DeckFile, prompt: str) -> int:
     session = orchestrator.new_session(max_messages=config.defaults.max_messages)
     labels = {a.id: a.spec.label for a in agents}
 
-    current: str | None = None
+    # Live streaming only makes sense when one agent is speaking. Interleaving
+    # several concurrent streams into one file handle shreds every answer into
+    # a few words per header, so a deck prints each reply whole instead.
+    live = len(agents) == 1
     failures = 0
 
     try:
         async for event in orchestrator.run_turn(session, prompt):
             match event:
                 case RunStarted(agent_id=agent_id, model=model):
-                    # With several agents streaming at once, stdout needs a
-                    # marker every time the speaker changes.
-                    print(f"\n── {labels[agent_id]} · {model} ──", flush=True)
-                    current = agent_id
-                case TextDelta(agent_id=agent_id, text=text):
-                    if agent_id != current:
-                        print(f"\n── {labels[agent_id]} ──", flush=True)
-                        current = agent_id
-                    print(text, end="", flush=True)
-                case RunFinished(agent_id=agent_id, usage=usage, elapsed_s=elapsed):
+                    if live:
+                        print(f"\n── {labels[agent_id]} · {model} ──", flush=True)
+                case TextDelta(text=text):
+                    if live:
+                        print(text, end="", flush=True)
+                case RunFinished(
+                    agent_id=agent_id, model=model, text=text, usage=usage, elapsed_s=elapsed
+                ):
+                    if not live:
+                        # RunFinished carries the whole reply, so a grouped
+                        # print needs no buffering of its own.
+                        print(f"\n── {labels[agent_id]} · {model} ──\n{text}", flush=True)
                     print(
                         f"\n   [{usage.input_tokens}→{usage.output_tokens} tok · "
                         f"{format_usd(usage.cost_usd)} · {elapsed:.1f}s]",
                         flush=True,
                     )
-                    current = None
                 case RunFailed(agent_id=agent_id, error=error):
                     failures += 1
                     print(f"\n   error ({labels[agent_id]}): {error}", file=sys.stderr)
-                    current = None
     except NotImplementedError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -217,8 +224,16 @@ def _cmd_keys(args: argparse.Namespace) -> int:
     return 0
 
 
-def _warn_missing_keys(config: DeckFile) -> None:
-    missing = secrets.apply_to_env(spec.model for spec in config.specs())
+def _prepare_environment(config: DeckFile) -> None:
+    """Export the keys this deck needs, and keep a local deck genuinely offline."""
+    models = [spec.model for spec in config.specs()]
+    if secrets.all_local(models):
+        # LiteLLM downloads a model price list at import. A deck of local models
+        # has nothing to price, and behind an intercepting proxy the fetch spends
+        # ~9s failing loudly before the first token arrives.
+        os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "true")
+
+    missing = secrets.apply_to_env(models)
     if missing:
         names = ", ".join(missing)
         print(

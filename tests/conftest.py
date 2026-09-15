@@ -60,3 +60,9 @@ def make_agent():
         return Agent(spec, provider or FakeProvider())
 
     return _make
+
+
+@pytest.fixture
+def provider_factory() -> type[FakeProvider]:
+    """The class itself, for tests that need to script more than one provider."""
+    return FakeProvider

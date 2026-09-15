@@ -86,3 +86,10 @@ def test_a_broken_keychain_does_not_raise(monkeypatch):
 
     assert secrets.get("openai") is None
     assert secrets.source("openai") == "missing"
+
+
+def test_all_local_spots_a_deck_that_needs_no_network():
+    assert secrets.all_local(["ollama_chat/qwen2.5:3b", "lm_studio/phi-4"])
+    assert not secrets.all_local(["ollama_chat/qwen2.5:3b", "openai/gpt-5"])
+    assert not secrets.all_local(["bedrock/claude"])  # no key, but not on this machine
+    assert not secrets.all_local([])

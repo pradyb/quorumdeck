@@ -75,3 +75,43 @@ def test_litellm_is_not_imported_just_to_show_help():
         check=True,
     )
     assert result.stdout.strip() == "False"
+
+
+def test_pattern_override_cannot_silently_downgrade_a_deck(config_file, capsys):
+    """`--pattern single` on a two-agent deck used to run one agent and say nothing."""
+    assert main(["--config", str(config_file), "run", "hi", "--pattern", "single"]) == 1
+
+    err = capsys.readouterr().err
+    assert "pattern 'single' takes exactly one agent" in err
+    assert "fanout" in err  # the message points at the pattern that would work
+
+
+def test_a_deck_prints_each_reply_whole(config_file, provider_factory, monkeypatch, capsys):
+    """Interleaving concurrent streams into one file handle shreds every answer."""
+    monkeypatch.setattr(
+        "quorumdeck.cli.default_provider",
+        lambda: provider_factory(chunks=["one ", "two ", "three"]),
+    )
+
+    assert main(["--config", str(config_file), "run", "hi"]) == 0
+
+    out = capsys.readouterr().out
+    assert out.count("one two three") == 2  # once per agent, unbroken
+
+
+def test_a_single_agent_deck_prints_its_reply_once(
+    tmp_path, provider_factory, monkeypatch, capsys
+):
+    """A solo deck streams live; printing the finished text too would double it."""
+    path = tmp_path / "quorumdeck.yaml"
+    path.write_text(
+        "version: 1\nagents:\n  - {id: solo, model: openai/gpt-5}\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        "quorumdeck.cli.default_provider", lambda: provider_factory(chunks=["alpha", "beta"])
+    )
+
+    assert main(["--config", str(path), "run", "hi"]) == 0
+
+    out = capsys.readouterr().out
+    assert out.count("alphabeta") == 1
