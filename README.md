@@ -45,15 +45,15 @@ Requires Python 3.11+.
 
 ```bash
 # Run without installing
-uvx quorumdeck@0.1.0a1
+uvx quorumdeck
 
 # Or install
-uv tool install quorumdeck --prerelease=allow    # or: pipx install --pip-args=--pre quorumdeck
+uv tool install quorumdeck   # or: pipx install quorumdeck
 ```
 
-Releases are pre-1.0 alphas for now, so installers need to be told to accept
-them. Once the orchestration patterns below are all implemented, `0.1.0` proper
-drops the extra flag.
+`0.1.0` is a normal release, not a pre-release, so no `--prerelease`/`--pre`
+flag is needed -- but it's still pre-1.0: expect breaking changes to
+`agents.yaml` between minor versions until 1.0.
 
 ## Quick start
 
