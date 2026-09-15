@@ -182,4 +182,4 @@ places to start are listed in [ROADMAP.md](ROADMAP.md).
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
