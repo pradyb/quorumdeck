@@ -132,6 +132,9 @@ deck keys set openrouter        # from https://openrouter.ai/keys
 deck --config examples/judge.yaml
 ```
 
+Or set `OPENROUTER_API_KEY` in the environment instead; it takes precedence over
+the keychain. See [Keys](#keys) for the full prefix-to-variable table.
+
 Free model ids rotate, so if one 404s pick a live replacement from
 [openrouter.ai/models?q=free](https://openrouter.ai/models?q=free); no pattern
 depends on a particular model.
@@ -159,9 +162,45 @@ deck keys set openai             # store in the OS keychain (never echoed)
 deck keys rm openai
 ```
 
-Environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …) always win over
-the keychain, so CI and containers work without a keyring backend. Local backends
-like Ollama and credential-chain backends like Bedrock need no key at all.
+An environment variable always wins over the keychain, so CI and containers work
+without a keyring backend. The variable is chosen by the model id's prefix:
+
+| Model prefix | Environment variable |
+| --- | --- |
+| `anthropic/…` | `ANTHROPIC_API_KEY` |
+| `azure/…` | `AZURE_API_KEY` |
+| `cerebras/…` | `CEREBRAS_API_KEY` |
+| `cohere/…` | `COHERE_API_KEY` |
+| `deepseek/…` | `DEEPSEEK_API_KEY` |
+| `fireworks_ai/…` | `FIREWORKS_API_KEY` |
+| `gemini/…` | `GEMINI_API_KEY` |
+| `groq/…` | `GROQ_API_KEY` |
+| `mistral/…` | `MISTRAL_API_KEY` |
+| `openai/…` | `OPENAI_API_KEY` |
+| `openrouter/…` | `OPENROUTER_API_KEY` |
+| `perplexity/…` | `PERPLEXITYAI_API_KEY` |
+| `together_ai/…` | `TOGETHERAI_API_KEY` |
+| `vertex_ai/…` | `VERTEXAI_PROJECT` |
+| `xai/…` | `XAI_API_KEY` |
+
+So `examples/judge.yaml`, whose models all start `openrouter/`, needs one
+variable:
+
+```bash
+export OPENROUTER_API_KEY=sk-or-...     # or: deck keys set openrouter
+deck --config examples/judge.yaml
+```
+
+A model id with no prefix at all (`gpt-5` rather than `openai/gpt-5`) is treated
+as OpenAI, matching LiteLLM's own default. For a prefix outside this table, set
+whatever variable LiteLLM expects for that backend yourself — `deck keys` only
+manages the providers listed above.
+
+`ollama`, `ollama_chat`, `vllm`, `lm_studio`, `bedrock` and `sagemaker` need no
+key at all: they authenticate over a local socket or through a credential chain.
+
+`deck keys list` shows, per provider, whether the key is coming from the
+environment, the keychain, or nowhere.
 
 ---
 

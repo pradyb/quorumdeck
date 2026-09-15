@@ -93,3 +93,17 @@ def test_all_local_spots_a_deck_that_needs_no_network():
     assert not secrets.all_local(["ollama_chat/qwen2.5:3b", "openai/gpt-5"])
     assert not secrets.all_local(["bedrock/claude"])  # no key, but not on this machine
     assert not secrets.all_local([])
+
+
+def test_the_readme_key_table_matches_the_code():
+    """A hand-written table of env vars drifts the moment a provider is added."""
+    from pathlib import Path
+
+    readme = Path(__file__).resolve().parents[1] / "README.md"
+    text = readme.read_text(encoding="utf-8")
+
+    for provider, env_var in secrets.ENV_VARS.items():
+        assert f"| `{provider}/…` | `{env_var}` |" in text, f"README is missing {provider}"
+
+    for provider in secrets.NO_KEY_NEEDED:
+        assert f"`{provider}`" in text, f"README does not mention {provider}"
