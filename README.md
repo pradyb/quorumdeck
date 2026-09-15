@@ -129,7 +129,7 @@ end to end.
 | `fanout` | Every agent answers the same prompt in parallel, side by side. | ✅ shipped |
 | `debate` | One agent answers, another critiques, the first revises, for `rounds`. | 🚧 0.2 |
 | `pipeline` | A `planner` decomposes the task; `worker` agents execute the steps. | 🚧 0.2 |
-| `judge` | Agents answer, then a designated `judge` merges or scores. | 🚧 0.2 |
+| `judge` | Agents answer in parallel, then a designated `judge` merges or scores. | ✅ shipped |
 
 Unimplemented patterns are rejected at runtime with a clear message rather than
 silently falling back — the config schema is stable ahead of the runtime on purpose.

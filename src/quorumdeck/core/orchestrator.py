@@ -80,6 +80,14 @@ class Orchestrator:
         self.judge_id = judge_id
         self._by_id: Mapping[str, Agent] = {a.id: a for a in self.agents}
 
+        if pattern is Pattern.JUDGE:
+            if judge_id is None:
+                raise ValueError("pattern 'judge' needs judge_id to name an agent")
+            if judge_id not in self._by_id:
+                raise ValueError(
+                    f"judge_id '{judge_id}' is not in the deck: {', '.join(self.agent_ids)}"
+                )
+
     @property
     def agent_ids(self) -> list[str]:
         return [a.id for a in self.agents]
@@ -101,7 +109,9 @@ class Orchestrator:
                 stream = self._run_single(session)
             case Pattern.FANOUT:
                 stream = self._run_fanout(session)
-            case Pattern.DEBATE | Pattern.PIPELINE | Pattern.JUDGE:
+            case Pattern.JUDGE:
+                stream = self._run_judge(session)
+            case Pattern.DEBATE | Pattern.PIPELINE:
                 raise NotImplementedError(
                     f"the '{self.pattern}' pattern is defined in the config schema "
                     "but not implemented yet -- see ROADMAP.md"
@@ -124,3 +134,55 @@ class Orchestrator:
 
     def _run_fanout(self, session: Session) -> AsyncIterator[Event]:
         return merge(agent.run(session.thread(agent.id)) for agent in self.agents)
+
+    async def _run_judge(self, session: Session) -> AsyncIterator[Event]:
+        """Fan out to the candidates, then hand their answers to the judge.
+
+        Two phases over one event stream: a consumer sees the candidates stream
+        in parallel exactly as in ``fanout``, then the judge as an ordinary
+        single turn. Nothing in the vocabulary marks the phase boundary, because
+        a panel does not need to know.
+        """
+        judge = self._by_id[self.judge_id]  # type: ignore[index]
+        candidates = [a for a in self.agents if a.id != judge.id]
+
+        answers: dict[str, str] = {}
+        async for event in merge(a.run(session.thread(a.id)) for a in candidates):
+            if isinstance(event, RunFinished):
+                answers[event.agent_id] = event.text
+            yield event
+
+        # Config order, so the same deck numbers its candidates the same way
+        # twice running -- the judge is asked to be reproducible too.
+        ordered = [answers[a.id] for a in candidates if a.id in answers]
+        if not ordered:
+            yield RunFailed(
+                agent_id=judge.id,
+                model=judge.spec.model,
+                error="every candidate failed, so there was nothing to judge",
+            )
+            return
+
+        session.add_user_to(judge.id, _judge_prompt(ordered))
+        async for event in judge.run(session.thread(judge.id)):
+            yield event
+
+
+def _judge_prompt(answers: Sequence[str]) -> str:
+    """Render the candidate answers as one prompt for the judge.
+
+    Candidates are numbered rather than named. An LLM asked to rank "Claude" and
+    "GPT" is partly ranking the brands; this tool exists to compare answers, so
+    the judge is shown only answers. The numbering follows config order, so the
+    caller can still map a verdict back to an agent.
+    """
+    blocks = "\n\n".join(
+        f"--- Candidate {index} ---\n{text.strip()}" for index, text in enumerate(answers, 1)
+    )
+    return (
+        f"Below are {len(answers)} independent candidate answers to the question "
+        "above.\n\nProduce the best single answer, drawing on whatever each one "
+        "gets right. Where they disagree, say which reading you took and why. Do "
+        "not reproduce a candidate verbatim unless it is genuinely the best "
+        f"available answer.\n\n{blocks}"
+    )

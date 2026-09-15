@@ -83,3 +83,32 @@ async def test_clear_resets_the_session(app):
 
         assert pilot.app.session.thread("a") == []
         assert pilot.app.session.usage == Usage()
+
+
+JUDGE = {
+    "version": 1,
+    "deck": {"pattern": "judge", "judge": "referee"},
+    "agents": [
+        {"id": "a", "name": "Alpha", "model": "fake/a"},
+        {"id": "b", "name": "Beta", "model": "fake/b"},
+        {"id": "referee", "name": "Referee", "model": "fake/r", "role": "judge"},
+    ],
+}
+
+
+async def test_a_judge_deck_fills_every_panel_including_the_judges():
+    """The judge runs a phase later than its peers; the view must not care."""
+    app = QuorumDeckApp(DeckFile.from_mapping(JUDGE), FakeProvider(["ruled"]))
+    async with app.run_test() as pilot:
+        await pilot.click("#prompt")
+        await pilot.press(*"hi")
+        await pilot.press("enter")
+        await pilot.app.workers.wait_for_complete()
+        await pilot.pause()
+
+        assert {p.spec.id for p in pilot.app.query(AgentPanel)} == {"a", "b", "referee"}
+        for agent_id in ("a", "b", "referee"):
+            assert pilot.app.session.thread(agent_id)[-1].content == "ruled"
+        # The judge's own prompt carries the candidate answers, so its input
+        # token count is not comparable with a candidate's -- but all three ran.
+        assert pilot.app.session.usage.output_tokens == 15

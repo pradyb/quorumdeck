@@ -1,4 +1,5 @@
-# Schema-valid today; the judge runtime lands in 0.2 (see ROADMAP.md).
+# Two agents answer in parallel, then the referee is shown both answers --
+# numbered, not named, so it ranks the answers rather than the brands.
 version: 1
 
 deck:

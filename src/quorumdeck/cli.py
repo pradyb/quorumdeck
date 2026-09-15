@@ -135,14 +135,16 @@ async def _stream_to_stdout(config: DeckFile, prompt: str) -> int:
     # a few words per header, so a deck prints each reply whole instead.
     live = len(agents) == 1
 
-    # Fanout starts every agent at once, so replies arrive in latency order --
-    # which varies run to run. Hold them and print in config order, matching the
-    # panel order in the TUI and making the same deck reproducible. Sequential
+    # Patterns that start agents at once produce replies in latency order, which
+    # varies run to run. Hold those and print in config order, matching the panel
+    # order in the TUI and making the same deck reproducible. Purely sequential
     # patterns finish in the order the agents spoke, which is already the order
     # worth reading, so they print as they go.
-    ordered = config.deck.pattern is Pattern.FANOUT
+    ordered = config.deck.pattern in {Pattern.FANOUT, Pattern.JUDGE}
     position = {agent.id: index for index, agent in enumerate(agents)}
-    held: list[tuple[int, str]] = []
+    # A judge rules on the candidates, so it reads last however it is declared.
+    rank = {a.id: (a.id == config.deck.judge, position[a.id]) for a in agents}
+    held: list[tuple[tuple[bool, int], str]] = []
     failures = 0
 
     try:
@@ -168,7 +170,7 @@ async def _stream_to_stdout(config: DeckFile, prompt: str) -> int:
                         # no buffer of deltas of its own.
                         block = f"\n── {labels[agent_id]} · {model} ──\n{text}{footer}"
                         if ordered:
-                            held.append((position[agent_id], block))
+                            held.append((rank[agent_id], block))
                         else:
                             print(block, flush=True)
                 case RunFailed(agent_id=agent_id, error=error):

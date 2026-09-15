@@ -41,6 +41,16 @@ class Session:
             messages.append(user(content))
         self._trim()
 
+    def add_user_to(self, agent_id: str, content: str) -> None:
+        """Add a prompt to one agent's thread only.
+
+        Some patterns ask one agent something its peers are not asked -- a judge
+        shown the candidate answers, say. Keeping it out of the other threads is
+        what stops a later fan-out from being contaminated by it.
+        """
+        self._threads[agent_id].append(user(content))
+        self._trim()
+
     def add_assistant(self, agent_id: str, content: str) -> None:
         self._threads[agent_id].append(assistant(content, name=agent_id))
         self._trim()

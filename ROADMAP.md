@@ -4,15 +4,19 @@ Ordered by what unblocks the most people, not by what is most fun.
 
 ## 0.2 — the remaining patterns
 
-The config schema already validates all five patterns; three need runtimes.
+The config schema already validates all five patterns; two still need runtimes.
 Each is a composition of what `0.1` proved, and each belongs in
 `core/orchestrator.py` behind the same event stream.
 
 - [ ] **`debate`** — `author` answers, `critic` critiques, `author` revises, for
-      `deck.rounds`. Needs a way to inject a peer's text into another agent's
-      thread without polluting the shared session.
-- [ ] **`judge`** — fan out, then feed the candidate answers to `deck.judge` as a
+      `deck.rounds`. `Session.add_user_to`, added for `judge`, is the mechanism
+      for showing one agent a peer's text; what is still open is how a multi-round
+      exchange reads in a panel built for one reply per turn.
+- [x] **`judge`** — fan out, then feed the candidate answers to `deck.judge` as a
       single synthesized prompt. Effectively `fanout` followed by `single`.
+      Shipped: candidates are numbered rather than named, so the judge ranks
+      answers instead of brands, and `Session.add_user_to` keeps the synthesized
+      prompt out of every other agent's thread.
 - [ ] **`pipeline`** — the `planner` agent emits steps; `worker` agents execute
       them. The only pattern that needs structured output between agents, so it
       should land last.
