@@ -69,6 +69,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--agent", action="append", dest="agents", help="only this agent (repeatable)"
     )
 
+    sessions_cmd = sub.add_parser("sessions", help="inspect saved sessions")
+    sessions_cmd.add_argument("action", choices=["list"])
+
     return parser
 
 
@@ -96,6 +99,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return _cmd_keys(args)
             case "export":
                 return _cmd_export(args)
+            case "sessions":
+                return _cmd_sessions(args)
             case _:  # pragma: no cover - argparse rejects anything else
                 parser.print_help()
                 return 2
@@ -300,6 +305,28 @@ def _cmd_export(args: argparse.Namespace) -> int:
         print(f"wrote {args.output}", file=sys.stderr)
     else:
         print(jsonl, end="")
+    return 0
+
+
+def _cmd_sessions(args: argparse.Namespace) -> int:
+    match args.action:
+        case "list":
+            directory = loader.sessions_dir()
+            paths = sorted(directory.glob("*.json"), reverse=True) if directory.is_dir() else []
+            if not paths:
+                print("no saved sessions yet -- ctrl+s in the TUI writes one")
+                return 0
+            for path in paths:
+                try:
+                    session = Session.load(path)
+                except (OSError, ValueError) as exc:
+                    print(f"  {path.name:<28} unreadable: {exc}", file=sys.stderr)
+                    continue
+                stamp = session.created_at.strftime("%Y-%m-%d %H:%M")
+                print(
+                    f"  {path.name:<28} {stamp}  {len(session.agent_ids)} agent(s)  "
+                    f"{session.usage.total_tokens} tok  {format_usd(session.usage.cost_usd)}"
+                )
     return 0
 
 

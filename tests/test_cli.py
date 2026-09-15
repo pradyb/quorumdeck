@@ -267,3 +267,46 @@ def test_export_writes_to_a_file_when_asked(tmp_path):
 def test_export_reports_a_missing_session_file(tmp_path, capsys):
     assert main(["export", str(tmp_path / "nope.json")]) == 1
     assert "no session file" in capsys.readouterr().err
+
+
+def test_sessions_list_shows_nothing_when_there_are_no_saved_sessions(
+    tmp_path, capsys, monkeypatch
+):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "none"))
+
+    assert main(["sessions", "list"]) == 0
+    assert "no saved sessions" in capsys.readouterr().out
+
+
+def test_sessions_list_shows_every_saved_session_newest_first(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    from quorumdeck.core.session import Session
+
+    Session(["a"]).save(tmp_path / "quorumdeck" / "sessions" / "20260101-000000.json")
+    Session(["a", "b"]).save(tmp_path / "quorumdeck" / "sessions" / "20260102-000000.json")
+
+    assert main(["sessions", "list"]) == 0
+
+    out = capsys.readouterr().out
+    lines = [line for line in out.splitlines() if line.strip()]
+    assert lines[0].startswith("  20260102-000000.json")  # newest first
+    assert "2 agent(s)" in lines[0]
+    assert "1 agent(s)" in lines[1]
+
+
+def test_sessions_list_reports_an_unreadable_file_without_stopping(
+    tmp_path, capsys, monkeypatch
+):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    from quorumdeck.core.session import Session
+
+    sessions_dir = tmp_path / "quorumdeck" / "sessions"
+    sessions_dir.mkdir(parents=True)
+    (sessions_dir / "broken.json").write_text("not json", encoding="utf-8")
+    Session(["a"]).save(sessions_dir / "good.json")
+
+    assert main(["sessions", "list"]) == 0
+
+    captured = capsys.readouterr()
+    assert "broken.json" in captured.err and "unreadable" in captured.err
+    assert "good.json" in captured.out
