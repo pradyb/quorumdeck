@@ -85,6 +85,26 @@ class Session:
             },
         }
 
+    def to_jsonl(self, agent_ids: Sequence[str] | None = None) -> str:
+        """One line per agent's own thread, in the shape fine-tuning JSONL uses.
+
+        Every agent by default: comparing several transcripts side by side is
+        the whole point of a multi-agent deck, and silently dropping to one
+        would defeat it. ``agent_ids`` narrows to a subset when that is
+        genuinely what's wanted.
+        """
+        ids = list(agent_ids) if agent_ids is not None else self._agent_ids
+        lines = [
+            json.dumps(
+                {
+                    "agent_id": agent_id,
+                    "messages": [m.to_wire() for m in self._threads[agent_id]],
+                }
+            )
+            for agent_id in ids
+        ]
+        return "\n".join(lines) + ("\n" if lines else "")
+
     def save(self, path: Path) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")

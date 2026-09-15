@@ -25,6 +25,7 @@ from quorumdeck.core.agent import Agent
 from quorumdeck.core.costs import format_usd
 from quorumdeck.core.events import RunFailed, RunFinished, RunStarted, TextDelta
 from quorumdeck.core.orchestrator import Orchestrator, Pattern
+from quorumdeck.core.session import Session
 from quorumdeck.providers import default_provider
 
 
@@ -57,6 +58,17 @@ def build_parser() -> argparse.ArgumentParser:
     keys_cmd.add_argument("action", choices=["set", "list", "rm"])
     keys_cmd.add_argument("provider", nargs="?", help="e.g. anthropic, openai")
 
+    export_cmd = sub.add_parser(
+        "export", help="export a saved session to JSONL, one line per agent"
+    )
+    export_cmd.add_argument(
+        "session", type=Path, help="a saved session file, or just its name under sessions_dir()"
+    )
+    export_cmd.add_argument("-o", "--output", type=Path, help="write here instead of stdout")
+    export_cmd.add_argument(
+        "--agent", action="append", dest="agents", help="only this agent (repeatable)"
+    )
+
     return parser
 
 
@@ -82,6 +94,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return _cmd_config(args)
             case "keys":
                 return _cmd_keys(args)
+            case "export":
+                return _cmd_export(args)
             case _:  # pragma: no cover - argparse rejects anything else
                 parser.print_help()
                 return 2
@@ -250,6 +264,42 @@ def _cmd_keys(args: argparse.Namespace) -> int:
                 print("error: `deck keys rm` needs a provider name", file=sys.stderr)
                 return 2
             print("removed" if secrets.delete(args.provider) else "no key stored")
+    return 0
+
+
+def _cmd_export(args: argparse.Namespace) -> int:
+    path = args.session
+    if not path.is_file():
+        # ctrl+s in the TUI always writes under sessions_dir(); this lets
+        # `deck export 20260915-153422.json` work without the full path.
+        candidate = loader.sessions_dir() / path.name
+        if not candidate.is_file():
+            print(f"error: no session file at {path}", file=sys.stderr)
+            return 1
+        path = candidate
+
+    try:
+        session = Session.load(path)
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    agent_ids = args.agents or session.agent_ids
+    unknown = [a for a in agent_ids if a not in session.agent_ids]
+    if unknown:
+        print(
+            f"error: unknown agent(s) {', '.join(unknown)}; this session has: "
+            f"{', '.join(session.agent_ids)}",
+            file=sys.stderr,
+        )
+        return 1
+
+    jsonl = session.to_jsonl(agent_ids)
+    if args.output:
+        args.output.write_text(jsonl, encoding="utf-8")
+        print(f"wrote {args.output}", file=sys.stderr)
+    else:
+        print(jsonl, end="")
     return 0
 
 

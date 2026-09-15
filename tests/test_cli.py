@@ -193,3 +193,77 @@ def test_deck_run_prints_every_round_of_a_debate(tmp_path, monkeypatch, capsys):
     assert out.index("draft") < out.index("critique") < out.index("revision")
     assert out.count("── Author") == 2  # the draft, and the revision
     assert out.count("── Critic") == 1
+
+
+def test_export_writes_one_jsonl_line_per_agent(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    from quorumdeck.core.session import Session
+
+    session = Session(["a", "b"])
+    session.add_user("hi")
+    session.add_assistant("a", "from a")
+    session.add_assistant("b", "from b")
+    saved = session.save(tmp_path / "quorumdeck" / "sessions" / "s.json")
+
+    assert main(["export", str(saved)]) == 0
+
+    import json
+
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 2
+    assert {json.loads(line)["agent_id"] for line in lines} == {"a", "b"}
+
+
+def test_export_resolves_a_bare_filename_under_sessions_dir(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    from quorumdeck.core.session import Session
+
+    session = Session(["a"])
+    session.save(tmp_path / "quorumdeck" / "sessions" / "s.json")
+
+    assert main(["export", "s.json"]) == 0
+    assert capsys.readouterr().out.strip() != ""
+
+
+def test_export_can_be_narrowed_to_one_agent(tmp_path, capsys, monkeypatch):
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+    from quorumdeck.core.session import Session
+
+    session = Session(["a", "b"])
+    session.add_user("hi")
+    saved = session.save(tmp_path / "s.json")
+
+    assert main(["export", str(saved), "--agent", "a"]) == 0
+
+    import json
+
+    lines = capsys.readouterr().out.splitlines()
+    assert len(lines) == 1
+    assert json.loads(lines[0])["agent_id"] == "a"
+
+
+def test_export_rejects_an_agent_not_in_the_session(tmp_path, capsys):
+    from quorumdeck.core.session import Session
+
+    session = Session(["a"])
+    saved = session.save(tmp_path / "s.json")
+
+    assert main(["export", str(saved), "--agent", "nobody"]) == 1
+    assert "unknown agent" in capsys.readouterr().err
+
+
+def test_export_writes_to_a_file_when_asked(tmp_path):
+    from quorumdeck.core.session import Session
+
+    session = Session(["a"])
+    session.add_user("hi")
+    saved = session.save(tmp_path / "s.json")
+    out = tmp_path / "out.jsonl"
+
+    assert main(["export", str(saved), "-o", str(out)]) == 0
+    assert out.read_text(encoding="utf-8").strip()
+
+
+def test_export_reports_a_missing_session_file(tmp_path, capsys):
+    assert main(["export", str(tmp_path / "nope.json")]) == 1
+    assert "no session file" in capsys.readouterr().err
