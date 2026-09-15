@@ -68,7 +68,14 @@ runtime. All five now do.
       that's the round-trippable shape resume needs, so export is a one-way
       read of it, not a second save format.
 - [ ] Export a session to Markdown too, alongside JSONL.
-- [ ] Cost budget per deck, with a hard stop.
+- [x] Cost budget per deck (`deck.budget_usd`), with a hard stop. Checked
+      before a turn does anything, in both `run` and the TUI -- the TUI
+      checks explicitly before mounting a prompt bubble into any panel,
+      rather than letting `Orchestrator.run_turn` refuse only once the first
+      event is pulled, which would have left an unanswered prompt sitting in
+      every panel with no explanation in it (a bug the first version of this
+      had, caught by its own test). The status bar shows progress toward the
+      cap once one is set, not just the refusal after the fact.
 
 ## Unscheduled, wanted
 

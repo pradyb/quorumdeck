@@ -15,6 +15,7 @@ from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
 from enum import StrEnum
 
 from quorumdeck.core.agent import Agent
+from quorumdeck.core.costs import format_usd
 from quorumdeck.core.events import Event, PromptInjected, RunFailed, RunFinished
 from quorumdeck.core.messages import Message, assistant, user
 from quorumdeck.core.session import Session
@@ -43,6 +44,16 @@ _JSON_RESPONSE_FORMAT: Mapping[str, object] = {"response_format": {"type": "json
 
 class PlanError(ValueError):
     """The planner's reply could not be turned into a runnable plan."""
+
+
+class BudgetExceeded(RuntimeError):
+    """The deck has already spent its budget; refused before running anything.
+
+    Not a RunFailed -- it isn't any one agent's failure, and there is no real
+    agent id to attribute it to. Raised before the turn's own prompt is even
+    recorded, the same way a config error stops a deck before it starts,
+    rather than after silently spending past the cap.
+    """
 
 
 async def merge(streams: Iterable[AsyncIterator[Event]]) -> AsyncIterator[Event]:
@@ -89,6 +100,7 @@ class Orchestrator:
         pattern: Pattern = Pattern.SINGLE,
         rounds: int = 2,
         judge_id: str | None = None,
+        budget_usd: float | None = None,
     ) -> None:
         if not agents:
             raise ValueError("a deck needs at least one agent")
@@ -96,6 +108,7 @@ class Orchestrator:
         self.pattern = pattern
         self.rounds = rounds
         self.judge_id = judge_id
+        self.budget_usd = budget_usd
         self._by_id: Mapping[str, Agent] = {a.id: a for a in self.agents}
 
         if pattern is Pattern.JUDGE:
@@ -135,6 +148,22 @@ class Orchestrator:
     def new_session(self, *, max_messages: int = 200) -> Session:
         return Session(self.agent_ids, max_messages=max_messages)
 
+    def check_budget(self, session: Session) -> None:
+        """Raise :class:`BudgetExceeded` if this deck has already spent its cap.
+
+        Public, and safe to call before doing anything UI-visible with a
+        turn that ``run_turn`` will refuse anyway -- ``run_turn`` calls this
+        itself, but a caller that shows a prompt in the UI *before* the first
+        event arrives (the TUI mounts a bubble into every panel up front)
+        needs to know it will be refused before doing that, not after.
+        """
+        if self.budget_usd is not None and session.usage.cost_usd >= self.budget_usd:
+            raise BudgetExceeded(
+                f"this deck has spent {format_usd(session.usage.cost_usd)} of its "
+                f"{format_usd(self.budget_usd)} budget -- raise deck.budget_usd, or "
+                "start a fresh session"
+            )
+
     async def run_turn(self, session: Session, prompt: str) -> AsyncIterator[Event]:
         """Stream one user turn, folding results back into ``session``.
 
@@ -142,6 +171,7 @@ class Orchestrator:
         that consumes the whole stream ends up with correct history and totals
         without doing any bookkeeping itself.
         """
+        self.check_budget(session)
         session.add_user(prompt)
 
         match self.pattern:

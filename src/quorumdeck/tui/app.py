@@ -26,7 +26,7 @@ from quorumdeck.core.events import (
     RunStarted,
     TextDelta,
 )
-from quorumdeck.core.orchestrator import Orchestrator
+from quorumdeck.core.orchestrator import BudgetExceeded, Orchestrator
 from quorumdeck.providers import Provider, default_provider
 from quorumdeck.tui.screens.help import HelpScreen
 from quorumdeck.tui.widgets.agent_panel import AgentPanel
@@ -68,6 +68,7 @@ class QuorumDeckApp(App[None]):
             pattern=config.deck.pattern,
             rounds=config.deck.rounds,
             judge_id=config.deck.judge,
+            budget_usd=config.deck.budget_usd,
         )
         if resume is not None:
             # Raises ConfigError, same contract as a bad agents.yaml -- this
@@ -99,6 +100,7 @@ class QuorumDeckApp(App[None]):
         status = self.query_one(StatusBar)
         status.pattern = str(self.config.deck.pattern)
         status.agents = len(self.agents)
+        status.budget_usd = self.config.deck.budget_usd
         if self._resumed:
             for agent in self.agents:
                 await self.panel(agent.id).replay(self.session.thread(agent.id))
@@ -118,6 +120,15 @@ class QuorumDeckApp(App[None]):
 
     @work(exclusive=True, group="turn")
     async def run_turn(self, prompt: str) -> None:
+        try:
+            # Checked before anything is shown: run_turn() would refuse this
+            # too, but only once the first event is pulled -- after a prompt
+            # bubble is already sitting in every panel with no reply coming.
+            self.orchestrator.check_budget(self.session)
+        except BudgetExceeded as exc:
+            self.notify(str(exc), severity="error", timeout=10)
+            return
+
         status = self.query_one(StatusBar)
         prompt_input = self.query_one("#prompt", Input)
         prompt_input.disabled = True
@@ -146,7 +157,7 @@ class QuorumDeckApp(App[None]):
                         await self.panel(agent_id).fail(error)
                     case _:
                         pass
-        except NotImplementedError as exc:
+        except (NotImplementedError, BudgetExceeded) as exc:
             self.notify(str(exc), severity="error", timeout=10)
         finally:
             status.state = "ready"

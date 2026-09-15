@@ -25,7 +25,7 @@ from quorumdeck.config.schema import DeckFile
 from quorumdeck.core.agent import Agent
 from quorumdeck.core.costs import format_usd
 from quorumdeck.core.events import RunFailed, RunFinished, RunStarted, TextDelta
-from quorumdeck.core.orchestrator import Orchestrator, Pattern
+from quorumdeck.core.orchestrator import BudgetExceeded, Orchestrator, Pattern
 from quorumdeck.core.session import Session
 from quorumdeck.providers import default_provider
 
@@ -161,6 +161,7 @@ async def _stream_to_stdout(
         pattern=config.deck.pattern,
         rounds=config.deck.rounds,
         judge_id=config.deck.judge,
+        budget_usd=config.deck.budget_usd,
     )
     if resume is not None:
         session = loader.resume_session(
@@ -218,7 +219,7 @@ async def _stream_to_stdout(
                 case RunFailed(agent_id=agent_id, error=error):
                     failures += 1
                     print(f"\n   error ({labels[agent_id]}): {error}", file=sys.stderr)
-    except NotImplementedError as exc:
+    except (NotImplementedError, BudgetExceeded) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

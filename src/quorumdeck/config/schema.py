@@ -74,6 +74,7 @@ class DeckConfig(BaseModel):
     rounds: int = Field(default=2, ge=1, le=10)
     judge: Identifier | None = None
     title: str | None = None
+    budget_usd: float | None = Field(default=None, gt=0)
 
 
 class DeckFile(BaseModel):

@@ -83,6 +83,7 @@ version: 1
 deck:
   pattern: fanout        # single | fanout | debate | pipeline | judge
   title: Compare
+  budget_usd: 2.00        # optional; a turn is refused once the deck has spent this
 
 defaults:
   temperature: 0.7
@@ -105,6 +106,12 @@ agents:
 ```
 
 Model ids are LiteLLM ids: `provider/model`. More in [`examples/`](examples/).
+
+`deck.budget_usd` is a hard stop, checked before a turn does anything: once
+the deck's running total (shown in the status bar as it goes) reaches it, the
+next turn is refused with a clear reason instead of a surprise bill. There is
+no partial-turn cutoff mid-stream -- a turn already running is not
+interrupted, only the *next* one is refused.
 
 ### Fully local
 

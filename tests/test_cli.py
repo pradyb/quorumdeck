@@ -397,3 +397,21 @@ def test_run_save_writes_a_resumable_session(tmp_path, monkeypatch, capsys):
     assert main(["sessions", "list"]) == 0
     out = capsys.readouterr().out
     assert "1 agent(s)" in out
+
+
+def test_run_refuses_once_the_deck_budget_is_spent(tmp_path, monkeypatch, capsys):
+    config_path = tmp_path / "quorumdeck.yaml"
+    config_path.write_text(
+        "version: 1\ndeck: {budget_usd: 1.0}\nagents:\n  - {id: solo, model: openai/gpt-5}\n",
+        encoding="utf-8",
+    )
+
+    from quorumdeck.core.events import Usage
+    from quorumdeck.core.session import Session
+
+    session = Session(["solo"])
+    session.record_usage(Usage(0, 0, 1.0))
+    saved = session.save(tmp_path / "s.json")
+
+    assert main(["--config", str(config_path), "--resume", str(saved), "run", "hi"]) == 1
+    assert "budget" in capsys.readouterr().err

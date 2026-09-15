@@ -260,3 +260,19 @@ def test_resume_session_rejects_a_mismatched_deck(tmp_path):
 def test_resume_session_reports_a_missing_file(tmp_path):
     with pytest.raises(ConfigError, match="no session file"):
         loader.resume_session(tmp_path / "nope.json", agent_ids=["a"], max_messages=200)
+
+
+def test_budget_usd_must_be_positive():
+    with pytest.raises(ValidationError):
+        DeckFile.from_mapping(
+            {
+                "version": 1,
+                "deck": {"budget_usd": 0},
+                "agents": [{"id": "a", "model": "m"}],
+            }
+        )
+
+
+def test_budget_usd_is_optional_and_off_by_default():
+    deck = DeckFile.from_mapping({"version": 1, "agents": [{"id": "a", "model": "m"}]})
+    assert deck.deck.budget_usd is None

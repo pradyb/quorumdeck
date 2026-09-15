@@ -12,7 +12,13 @@ from quorumdeck.core.events import (
     TextDelta,
     Usage,
 )
-from quorumdeck.core.orchestrator import MAX_PIPELINE_STEPS, Orchestrator, Pattern, merge
+from quorumdeck.core.orchestrator import (
+    MAX_PIPELINE_STEPS,
+    BudgetExceeded,
+    Orchestrator,
+    Pattern,
+    merge,
+)
 from quorumdeck.providers.base import Chunk, Completed, ProviderError
 from tests.conftest import FakeProvider
 
@@ -545,3 +551,37 @@ def test_a_pipeline_deck_needs_one_planner_and_at_least_one_worker(make_agent, a
     agents = [make_agent(**kwargs) for kwargs in agents_kwargs]
     with pytest.raises(ValueError, match=r"planner|worker"):
         Orchestrator(agents, pattern=Pattern.PIPELINE)
+
+
+async def test_a_deck_with_no_budget_never_refuses(make_agent):
+    orch = Orchestrator([make_agent("a", FakeProvider(["ok"]))], pattern=Pattern.SINGLE)
+    session = orch.new_session()
+    session.record_usage(Usage(0, 0, 999.0))  # would blow any real budget
+
+    events = await collect(orch.run_turn(session, "hi"))
+    assert any(isinstance(e, RunFinished) for e in events)
+
+
+async def test_a_deck_refuses_a_turn_once_its_budget_is_spent(make_agent):
+    orch = Orchestrator(
+        [make_agent("a", FakeProvider(["ok"]))], pattern=Pattern.SINGLE, budget_usd=1.0
+    )
+    session = orch.new_session()
+    session.record_usage(Usage(0, 0, 1.0))
+
+    with pytest.raises(BudgetExceeded, match=r"\$1\.00"):
+        await collect(orch.run_turn(session, "hi"))
+
+    # Refused before anything happened: no prompt recorded, no agent touched.
+    assert session.thread("a") == []
+
+
+async def test_a_deck_under_budget_still_runs(make_agent):
+    orch = Orchestrator(
+        [make_agent("a", FakeProvider(["ok"]))], pattern=Pattern.SINGLE, budget_usd=1.0
+    )
+    session = orch.new_session()
+    session.record_usage(Usage(0, 0, 0.5))
+
+    events = await collect(orch.run_turn(session, "hi"))
+    assert any(isinstance(e, RunFinished) for e in events)

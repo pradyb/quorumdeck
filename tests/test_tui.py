@@ -258,3 +258,37 @@ def test_a_resumed_session_must_match_the_active_decks_agents(tmp_path):
 
     with pytest.raises(ConfigError, match="was saved with agents"):
         QuorumDeckApp(DeckFile.from_mapping(FANOUT), FakeProvider(), resume=saved)
+
+
+BUDGETED = {
+    "version": 1,
+    "deck": {"budget_usd": 1.0},
+    "agents": [{"id": "a", "name": "A", "model": "fake/a"}],
+}
+
+
+async def test_the_status_bar_shows_the_budget_when_one_is_set():
+    app = QuorumDeckApp(DeckFile.from_mapping(BUDGETED), FakeProvider(["ok"]))
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        rendered = pilot.app.query_one(StatusBar).render()
+        assert "$1.00" in rendered
+
+
+async def test_a_turn_is_refused_once_the_budget_is_already_spent():
+    from quorumdeck.core.events import Usage
+
+    app = QuorumDeckApp(DeckFile.from_mapping(BUDGETED), FakeProvider(["should not run"]))
+    async with app.run_test() as pilot:
+        pilot.app.session.record_usage(Usage(0, 0, 1.0))
+
+        await pilot.click("#prompt")
+        await pilot.press(*"hi")
+        await pilot.press("enter")
+        await pilot.app.workers.wait_for_complete()
+        await pilot.pause()
+
+        # Refused before anything happened: no bubble, no reply in the thread.
+        assert pilot.app.session.thread("a") == []
+        panel = pilot.app.query_one("#panel-a", AgentPanel)
+        assert not list(panel.query(".user-turn"))
