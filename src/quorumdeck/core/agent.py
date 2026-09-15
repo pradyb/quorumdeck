@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass
 from time import perf_counter
+from typing import Any
 
 from quorumdeck.core.events import (
     Event,
@@ -70,7 +71,9 @@ class Agent:
     def id(self) -> str:
         return self.spec.id
 
-    def _request(self, messages: Sequence[Message]) -> CompletionRequest:
+    def _request(
+        self, messages: Sequence[Message], *, extra: Mapping[str, Any] | None = None
+    ) -> CompletionRequest:
         prepared = list(messages)
         if self.spec.system_prompt and not any(m.role is Role.SYSTEM for m in prepared):
             prepared.insert(0, system(self.spec.system_prompt))
@@ -82,10 +85,20 @@ class Agent:
             reasoning_effort=self.spec.reasoning_effort,
             api_base=self.spec.api_base,
             timeout_s=self.timeout_s,
+            extra=extra or {},
         )
 
-    async def run(self, messages: Sequence[Message]) -> AsyncIterator[Event]:
-        """Stream one turn. Always terminates with RunFinished or RunFailed."""
+    async def run(
+        self, messages: Sequence[Message], *, extra: Mapping[str, Any] | None = None
+    ) -> AsyncIterator[Event]:
+        """Stream one turn. Always terminates with RunFinished or RunFailed.
+
+        ``extra`` is an escape hatch for one call, not the agent's own
+        persona -- pipeline uses it to hint ``response_format`` at the
+        planner without teaching this module what that key means. It reaches
+        the provider unchanged; a backend that does not understand it drops
+        it (``litellm.drop_params``), same as any other unsupported knob.
+        """
         spec = self.spec
         yield RunStarted(agent_id=spec.id, model=spec.model)
 
@@ -95,7 +108,7 @@ class Agent:
         finish_reason: str | None = None
 
         try:
-            async for event in self.provider.stream(self._request(messages)):
+            async for event in self.provider.stream(self._request(messages, extra=extra)):
                 match event:
                     case Chunk(text=text):
                         parts.append(text)

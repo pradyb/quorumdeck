@@ -22,9 +22,9 @@ Bring your own model. Bring several.
  ready  ·  fanout × 2  ·  1922 tok  ·  $0.01
 ```
 
-> **Status: alpha (0.1).** The `single` and `fanout` patterns work end to end.
-> `debate`, `pipeline` and `judge` validate in config but are not implemented yet —
-> see [ROADMAP.md](ROADMAP.md).
+> **Status: alpha.** All five orchestration patterns — `single`, `fanout`,
+> `judge`, `debate`, `pipeline` — work end to end. See [ROADMAP.md](ROADMAP.md)
+> for what's next (tool use, session resume).
 
 ---
 
@@ -123,14 +123,17 @@ end to end.
 
 ### Free, but not local
 
-[`examples/judge.yaml`](examples/judge.yaml) and
-[`examples/debate.yaml`](examples/debate.yaml) run entirely on OpenRouter's
-free tier — several models from different labs, one key, no card:
+[`examples/judge.yaml`](examples/judge.yaml),
+[`examples/debate.yaml`](examples/debate.yaml) and
+[`examples/pipeline.yaml`](examples/pipeline.yaml) run entirely on
+OpenRouter's free tier — several models from different labs, one key, no
+card:
 
 ```bash
 deck keys set openrouter        # from https://openrouter.ai/keys
 deck --config examples/judge.yaml
 deck --config examples/debate.yaml
+deck --config examples/pipeline.yaml
 ```
 
 Or set `OPENROUTER_API_KEY` in the environment instead; it takes precedence over
@@ -147,11 +150,13 @@ depends on a particular model.
 | `single` | One agent answers. Ordinary chat. | ✅ shipped |
 | `fanout` | Every agent answers the same prompt in parallel, side by side. | ✅ shipped |
 | `debate` | One agent answers, another critiques, the first revises, for `rounds`. | ✅ shipped |
-| `pipeline` | A `planner` decomposes the task; `worker` agents execute the steps. | 🚧 0.2 |
+| `pipeline` | A `planner` decomposes the task; `worker` agents execute the steps. | ✅ shipped |
 | `judge` | Agents answer in parallel, then a designated `judge` merges or scores. | ✅ shipped |
 
-Unimplemented patterns are rejected at runtime with a clear message rather than
-silently falling back — the config schema is stable ahead of the runtime on purpose.
+The schema was written to validate all five before any of them had a runtime,
+on purpose — a pattern's config shape doesn't change the day its `_run_*`
+method lands, and a request for one not yet built fails clearly rather than
+silently falling back to another.
 
 ---
 

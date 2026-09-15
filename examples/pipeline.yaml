@@ -1,0 +1,47 @@
+# A planner decomposes the task; worker agents each execute their own steps.
+#
+# "Execute" still means one more LLM call, not a tool call -- there is no MCP
+# support yet (see ROADMAP.md 0.3). Steps route to a named worker; one
+# worker's own steps run in order, so a later step can build on an earlier
+# one in the same queue, but workers never see each other's output. That
+# makes this suited to independently-parallelizable steps, not a dependency
+# graph that crosses workers.
+#
+# The planner is asked for a JSON array of {"assignee", "task"} objects. Small
+# models are unreliable at this -- one will sometimes hand back a single step
+# bare rather than wrapped in an array, which quorumdeck accepts -- so the
+# planner here is the largest model on OpenRouter's free tier; the workers,
+# which only need to follow one instruction each, can be smaller.
+#
+#   deck keys set openrouter        # from https://openrouter.ai/keys
+#   deck --config examples/pipeline.yaml
+#
+# Free model ids rotate; swap in any live one from
+# https://openrouter.ai/models?q=free if one of these is gone.
+version: 1
+
+deck:
+  pattern: pipeline
+  title: Pipeline
+
+defaults:
+  timeout_s: 180
+
+agents:
+  - id: planner
+    name: Planner
+    model: "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
+    role: planner
+    system_prompt: You are a planning assistant. Decompose tasks into small, concrete steps.
+
+  - id: researcher
+    name: Researcher
+    model: "openrouter/google/gemma-4-31b-it:free"
+    role: worker
+    system_prompt: You research and summarize; you do not write final prose.
+
+  - id: writer
+    name: Writer
+    model: "openrouter/thinkingmachines/inkling:free"
+    role: worker
+    system_prompt: You write clear, brief final prose from whatever you are given.

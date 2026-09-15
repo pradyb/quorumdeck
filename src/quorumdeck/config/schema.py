@@ -126,8 +126,17 @@ class DeckFile(BaseModel):
                     f"role 'critic' (got {count} agents, {len(critics)} critic(s))"
                 )
 
-        if pattern is Pattern.PIPELINE and not any(a.role == "planner" for a in self.agents):
-            raise ValueError("pattern 'pipeline' needs one agent with role 'planner'")
+        if pattern is Pattern.PIPELINE:
+            planners = [a.id for a in self.agents if a.role == "planner"]
+            if len(planners) != 1:
+                raise ValueError(
+                    "pattern 'pipeline' needs exactly one agent with role "
+                    f"'planner', found {len(planners)}"
+                )
+            if not any(a.role == "worker" for a in self.agents):
+                raise ValueError(
+                    "pattern 'pipeline' needs at least one agent with role 'worker'"
+                )
 
         return self
 

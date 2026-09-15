@@ -9,11 +9,14 @@ know which pattern is running.
 from __future__ import annotations
 
 import asyncio
+import json
+import re
 from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
 from enum import StrEnum
 
 from quorumdeck.core.agent import Agent
 from quorumdeck.core.events import Event, PromptInjected, RunFailed, RunFinished
+from quorumdeck.core.messages import Message, assistant, user
 from quorumdeck.core.session import Session
 
 
@@ -25,6 +28,21 @@ class Pattern(StrEnum):
     DEBATE = "debate"
     PIPELINE = "pipeline"
     JUDGE = "judge"
+
+
+# A runaway planner could decompose a task into far more steps than anyone
+# meant to pay for. Not a config knob yet -- nothing has asked for that, and
+# every new schema field is a thing to maintain.
+MAX_PIPELINE_STEPS = 20
+
+# Best-effort only: never trusted. A backend that understands it uses it; one
+# that does not silently drops it (litellm.drop_params), same as any other
+# knob this project sends optimistically. _parse_plan is the real contract.
+_JSON_RESPONSE_FORMAT: Mapping[str, object] = {"response_format": {"type": "json_object"}}
+
+
+class PlanError(ValueError):
+    """The planner's reply could not be turned into a runnable plan."""
 
 
 async def merge(streams: Iterable[AsyncIterator[Event]]) -> AsyncIterator[Event]:
@@ -97,6 +115,19 @@ class Orchestrator:
                     f"{len(critics)} critic(s)"
                 )
 
+        if pattern is Pattern.PIPELINE:
+            planners = [a for a in self.agents if a.spec.role == "planner"]
+            workers = [a for a in self.agents if a.spec.role == "worker"]
+            if len(planners) != 1:
+                raise ValueError(
+                    "pattern 'pipeline' needs exactly one agent with role "
+                    f"'planner', found {len(planners)}"
+                )
+            if not workers:
+                raise ValueError(
+                    "pattern 'pipeline' needs at least one agent with role 'worker'"
+                )
+
     @property
     def agent_ids(self) -> list[str]:
         return [a.id for a in self.agents]
@@ -123,17 +154,24 @@ class Orchestrator:
             case Pattern.DEBATE:
                 stream = self._run_debate(session)
             case Pattern.PIPELINE:
-                raise NotImplementedError(
-                    f"the '{self.pattern}' pattern is defined in the config schema "
-                    "but not implemented yet -- see ROADMAP.md"
-                )
+                stream = self._run_pipeline(session)
             case _:  # pragma: no cover - StrEnum is exhaustive
                 raise ValueError(f"unknown pattern: {self.pattern}")
 
         async for event in stream:
+            # The single place session mutation happens, regardless of which
+            # pattern produced the event. A _run_* method that is itself one
+            # of merge()'s input streams (pipeline's workers) is driven by
+            # merge()'s own pump task, not by this loop, so it cannot rely on
+            # a mutation landing before its *own* next step needs to read it
+            # back -- only this loop's consumption order is the guaranteed
+            # one, because merge() promises to preserve each stream's order
+            # by the time events reach here.
             if isinstance(event, RunFinished):
                 session.add_assistant(event.agent_id, event.text)
                 session.record_usage(event.usage)
+            elif isinstance(event, PromptInjected):
+                session.add_user_to(event.agent_id, event.text)
             elif isinstance(event, RunFailed):
                 # Keep the thread consistent: a failed turn leaves no reply.
                 pass
@@ -175,7 +213,6 @@ class Orchestrator:
             return
 
         judge_prompt = _judge_prompt(ordered)
-        session.add_user_to(judge.id, judge_prompt)
         yield PromptInjected(agent_id=judge.id, text=judge_prompt)
         async for event in judge.run(session.thread(judge.id)):
             yield event
@@ -205,7 +242,6 @@ class Orchestrator:
 
         for _ in range(self.rounds):
             critique_prompt = _critique_request(draft)
-            session.add_user_to(critic.id, critique_prompt)
             yield PromptInjected(agent_id=critic.id, text=critique_prompt)
             critique = None
             async for event in critic.run(session.thread(critic.id)):
@@ -216,7 +252,6 @@ class Orchestrator:
                 return
 
             revision_prompt = _revision_request(critique)
-            session.add_user_to(author.id, revision_prompt)
             yield PromptInjected(agent_id=author.id, text=revision_prompt)
             draft = None
             async for event in author.run(session.thread(author.id)):
@@ -225,6 +260,86 @@ class Orchestrator:
                 yield event
             if draft is None:
                 return
+
+    async def _run_pipeline(self, session: Session) -> AsyncIterator[Event]:
+        """planner decomposes the task; worker agents execute the steps.
+
+        "Execute" still means one more LLM call, not a tool call -- MCP
+        support (ROADMAP 0.3) is what will let a worker actually do
+        something. Steps route to a named worker; one worker's own steps run
+        in order, so a later step can depend on an earlier one in the same
+        queue (via the same ``Session.add_user_to`` judge and debate use),
+        but workers never see each other's output. So this only suits
+        independently-parallelizable steps, not a dependency graph that
+        crosses workers.
+        """
+        planner = next(a for a in self.agents if a.spec.role == "planner")
+        workers = {a.id: a for a in self.agents if a.spec.role == "worker"}
+
+        planning_prompt = _planning_request(sorted(workers))
+        yield PromptInjected(agent_id=planner.id, text=planning_prompt)
+
+        plan_text = None
+        async for event in planner.run(session.thread(planner.id), extra=_JSON_RESPONSE_FORMAT):
+            if isinstance(event, RunFinished):
+                plan_text = event.text
+            yield event
+        if plan_text is None:
+            return  # the planner's own RunFailed already explains why
+
+        try:
+            steps = _parse_plan(plan_text, frozenset(workers))
+        except PlanError as exc:
+            # The planner's turn succeeded; the *plan* is what's unusable, so
+            # this is a pipeline-level failure rather than a second run of the
+            # same agent. Attributed to the planner anyway, the same way
+            # judge attributes "nothing to judge" to the judge -- it names
+            # the agent whose output caused nothing further to happen.
+            yield RunFailed(agent_id=planner.id, model=planner.spec.model, error=str(exc))
+            return
+
+        grouped: dict[str, list[str]] = {}
+        for assignee, task in steps:
+            grouped.setdefault(assignee, []).append(task)
+
+        async for event in merge(
+            self._run_worker_steps(workers[worker_id], tasks, session)
+            for worker_id, tasks in grouped.items()
+        ):
+            yield event
+
+    async def _run_worker_steps(
+        self, worker: Agent, tasks: Sequence[str], session: Session
+    ) -> AsyncIterator[Event]:
+        """Run one worker's assigned steps in order, stopping on the first failure.
+
+        A later step may depend on an earlier one in the *same* worker's
+        queue -- that's why they run in order instead of also being fanned
+        out -- so there is nothing useful left to do here once one fails.
+
+        This is one of several streams handed to ``merge()``, so it is driven
+        by merge()'s own pump task rather than by ``run_turn``'s fold loop --
+        which means it cannot assume ``session.add_assistant`` has landed for
+        step *N* by the time it needs to build step *N+1*'s request; the fold
+        loop that does that mutation is a separate, slower consumer draining
+        the merged queue at its own pace. So it tracks its own copy of the
+        thread instead of re-reading ``session.thread()`` between steps -- the
+        same reason ``_run_debate`` keeps ``draft``/``critique`` in a local
+        variable rather than trusting the session to already reflect them.
+        """
+        thread: list[Message] = list(session.thread(worker.id))
+        for task in tasks:
+            thread.append(user(task))
+            yield PromptInjected(agent_id=worker.id, text=task)
+
+            text = None
+            async for event in worker.run(thread):
+                if isinstance(event, RunFinished):
+                    text = event.text
+                yield event
+            if text is None:
+                return
+            thread.append(assistant(text, name=worker.id))
 
 
 def _judge_prompt(answers: Sequence[str]) -> str:
@@ -265,3 +380,111 @@ def _revision_request(critique: str) -> str:
         f"why not, but do not simply repeat your previous answer.\n\n"
         f"--- Critique ---\n{critique.strip()}"
     )
+
+
+def _planning_request(worker_ids: Sequence[str]) -> str:
+    """Ask the planner for a JSON step list naming one of this deck's workers per step."""
+    roster = ", ".join(worker_ids)
+    example_assignee = worker_ids[0] if worker_ids else "worker-id"
+    return (
+        "Break the task above into concrete steps. Respond with ONLY a JSON "
+        "array, no prose before or after it -- even if there is only one "
+        "step, it must still be inside an array. Each element is an object "
+        f'with "assignee" (one of: {roster}) and "task": a self-contained '
+        "instruction -- the worker carrying it out will not see this plan or "
+        f"any other step, only its own task text. At most {MAX_PIPELINE_STEPS} "
+        "steps.\n\n"
+        f'Example: [{{"assignee": "{example_assignee}", "task": "..."}}]'
+    )
+
+
+def _parse_plan(text: str, worker_ids: frozenset[str]) -> list[tuple[str, str]]:
+    """Extract ``[(assignee, task), ...]`` from the planner's freeform reply.
+
+    Small and local models rarely obey a strict JSON mode, and
+    ``response_format`` is sent as a hint that some backends silently drop --
+    never trusted -- so this pulls a fenced ```json block if there is one,
+    else the first balanced top-level JSON value anywhere in the text.
+    """
+    raw = _extract_json(text)
+    if raw is None:
+        raise PlanError(
+            "the planner's reply wasn't a parseable JSON step list "
+            f"(got: {text.strip()[:200]!r}) -- try a stronger planner model"
+        )
+    try:
+        steps = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise PlanError(f"the planner's plan is not valid JSON: {exc}") from exc
+
+    # Asked for "a JSON array", a model that decomposes the task into exactly
+    # one step will sometimes emit that step bare rather than wrapping it --
+    # observed against a real local 7B model, not a hypothetical. Treated as
+    # a one-step plan rather than rejected.
+    if isinstance(steps, dict):
+        steps = [steps]
+
+    if not isinstance(steps, list) or not steps:
+        raise PlanError("the planner's plan must be a JSON step, or an array of steps")
+    if len(steps) > MAX_PIPELINE_STEPS:
+        raise PlanError(
+            f"the plan has {len(steps)} steps, more than the {MAX_PIPELINE_STEPS} "
+            "this build allows"
+        )
+
+    default_worker = next(iter(worker_ids)) if len(worker_ids) == 1 else None
+    parsed: list[tuple[str, str]] = []
+    for index, step in enumerate(steps, 1):
+        if not isinstance(step, dict) or "task" not in step:
+            raise PlanError(f"step {index} is missing a 'task'")
+        assignee = step.get("assignee") or default_worker
+        if assignee is None:
+            raise PlanError(
+                f"step {index} has no 'assignee' and this deck has more than "
+                "one worker, so it is ambiguous which one should run it"
+            )
+        if assignee not in worker_ids:
+            raise PlanError(
+                f"step {index} is assigned to '{assignee}', which is not a "
+                f"worker in this deck: {', '.join(sorted(worker_ids))}"
+            )
+        task = str(step["task"]).strip()
+        if not task:
+            raise PlanError(f"step {index} has an empty task")
+        parsed.append((assignee, task))
+    return parsed
+
+
+def _extract_json(text: str) -> str | None:
+    """Pull a JSON array or object out of freeform text.
+
+    Tries a fenced ```json block first, then the first balanced top-level
+    array, then the first balanced top-level object -- the array is
+    preferred when both are present, since that is what was actually asked
+    for; the object fallback exists for the single-step case above.
+    """
+    fenced = re.search(r"```(?:json)?\s*([\[{].*?[\]}])\s*```", text, re.DOTALL)
+    if fenced:
+        return fenced.group(1)
+
+    for open_char, close_char in ("[]", "{}"):
+        found = _extract_balanced(text, open_char, close_char)
+        if found is not None:
+            return found
+    return None
+
+
+def _extract_balanced(text: str, open_char: str, close_char: str) -> str | None:
+    """The first top-level ``open_char ... close_char`` span in ``text``."""
+    start = text.find(open_char)
+    if start == -1:
+        return None
+    depth = 0
+    for index in range(start, len(text)):
+        if text[index] == open_char:
+            depth += 1
+        elif text[index] == close_char:
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+    return None

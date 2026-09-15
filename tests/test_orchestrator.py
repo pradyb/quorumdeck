@@ -12,7 +12,7 @@ from quorumdeck.core.events import (
     TextDelta,
     Usage,
 )
-from quorumdeck.core.orchestrator import Orchestrator, Pattern, merge
+from quorumdeck.core.orchestrator import MAX_PIPELINE_STEPS, Orchestrator, Pattern, merge
 from quorumdeck.providers.base import Chunk, Completed, ProviderError
 from tests.conftest import FakeProvider
 
@@ -80,15 +80,6 @@ async def test_merge_preserves_per_stream_order_while_interleaving():
         assert [e.text for e in events if e.agent_id == name] == ["0", "1", "2"]
     # The fast stream should not have been blocked behind the slow one.
     assert events[0].agent_id == "fast"
-
-
-@pytest.mark.parametrize("pattern", [Pattern.PIPELINE])
-async def test_unimplemented_patterns_fail_loudly(make_agent, pattern):
-    orch = Orchestrator([make_agent("a"), make_agent("b")], pattern=pattern)
-    session = orch.new_session()
-
-    with pytest.raises(NotImplementedError, match="ROADMAP"):
-        await collect(orch.run_turn(session, "hi"))
 
 
 def test_empty_deck_is_rejected():
@@ -346,3 +337,211 @@ def test_a_debate_deck_needs_exactly_one_author_and_one_critic(make_agent, agent
     agents = [make_agent(**kwargs) for kwargs in agents_kwargs]
     with pytest.raises(ValueError, match="exactly one author and one agent with role 'critic'"):
         Orchestrator(agents, pattern=Pattern.DEBATE)
+
+
+def pipeline_deck(make_agent, *, plan, workers):
+    """``workers`` maps worker id -> provider (or None for a default FakeProvider)."""
+    planner = make_agent("planner", SequencedProvider([plan]), role="planner")
+    worker_agents = [
+        make_agent(wid, provider or FakeProvider([f"{wid}-done"]), role="worker")
+        for wid, provider in workers.items()
+    ]
+    orch = Orchestrator([planner, *worker_agents], pattern=Pattern.PIPELINE)
+    return orch, planner, worker_agents
+
+
+async def test_pipeline_runs_a_step_through_its_named_worker(make_agent):
+    plan = '[{"assignee": "worker", "task": "do the thing"}]'
+    orch, _, _ = pipeline_deck(make_agent, plan=plan, workers={"worker": None})
+    session = orch.new_session()
+
+    events = await collect(orch.run_turn(session, "hi"))
+    finished = [e for e in events if isinstance(e, RunFinished)]
+
+    assert [(e.agent_id, e.text) for e in finished] == [
+        ("planner", plan),
+        ("worker", "worker-done"),
+    ]
+    injected = [e for e in events if isinstance(e, PromptInjected)]
+    assert [e.agent_id for e in injected] == ["planner", "worker"]
+    assert injected[-1].text == "do the thing"
+
+
+async def test_pipeline_defaults_a_missing_assignee_to_the_lone_worker(make_agent):
+    plan = '[{"task": "no assignee given"}]'
+    orch, _, _ = pipeline_deck(make_agent, plan=plan, workers={"worker": None})
+    session = orch.new_session()
+
+    events = await collect(orch.run_turn(session, "hi"))
+
+    assert session.thread("worker")[1].content == "no assignee given"
+    assert not any(isinstance(e, RunFailed) for e in events)
+
+
+async def test_pipeline_accepts_a_bare_single_step_not_wrapped_in_an_array(make_agent):
+    """A real local 7B model did exactly this: asked for a JSON array, it
+    decomposed the task into one step and emitted that step bare."""
+    plan = '{"assignee": "worker", "task": "the only step"}'
+    orch, _, _ = pipeline_deck(make_agent, plan=plan, workers={"worker": None})
+    session = orch.new_session()
+
+    events = await collect(orch.run_turn(session, "hi"))
+
+    assert session.thread("worker")[1].content == "the only step"
+    assert not any(isinstance(e, RunFailed) for e in events)
+
+
+async def test_pipeline_accepts_a_fenced_plan_with_surrounding_prose(make_agent):
+    plan_reply = (
+        'Sure, here is the plan:\n```json\n[{"assignee": "worker", "task": "go"}]\n```\nEnjoy.'
+    )
+    orch, _, _ = pipeline_deck(make_agent, plan=plan_reply, workers={"worker": None})
+    session = orch.new_session()
+
+    events = await collect(orch.run_turn(session, "hi"))
+
+    assert session.thread("worker")[1].content == "go"
+    assert not any(isinstance(e, RunFailed) for e in events)
+
+
+async def test_pipeline_runs_one_workers_steps_in_order(make_agent):
+    plan = (
+        '[{"assignee": "worker", "task": "step one"}, '
+        '{"assignee": "worker", "task": "step two"}]'
+    )
+    worker_provider = SequencedProvider(["result one", "result two"])
+    orch, _, _ = pipeline_deck(make_agent, plan=plan, workers={"worker": worker_provider})
+    session = orch.new_session()
+
+    events = await collect(orch.run_turn(session, "hi"))
+    injected = [
+        e.text for e in events if isinstance(e, PromptInjected) if e.agent_id == "worker"
+    ]
+    replies = [e.text for e in events if isinstance(e, RunFinished) if e.agent_id == "worker"]
+
+    assert injected == ["step one", "step two"]
+    assert replies == ["result one", "result two"]
+    # Each step sees the one before it, in the same worker's own thread.
+    assert [m.content for m in session.thread("worker")][1:] == [
+        "step one",
+        "result one",
+        "step two",
+        "result two",
+    ]
+
+
+async def test_pipeline_runs_different_workers_concurrently(make_agent):
+    plan = '[{"assignee": "slow", "task": "s"}, {"assignee": "fast", "task": "f"}]'
+    orch, _, _ = pipeline_deck(
+        make_agent,
+        plan=plan,
+        workers={
+            "slow": FakeProvider(["slow-done"], delay=0.05),
+            "fast": FakeProvider(["fast-done"]),
+        },
+    )
+    session = orch.new_session()
+
+    events = await collect(orch.run_turn(session, "hi"))
+    finished = [e for e in events if isinstance(e, RunFinished) and e.agent_id != "planner"]
+
+    # The fast worker's step was not held up behind the slow worker's step.
+    assert finished[0].agent_id == "fast"
+
+
+async def test_pipeline_fails_cleanly_when_the_plan_is_not_json(make_agent):
+    orch, _, _ = pipeline_deck(
+        make_agent, plan="Sure! Step one: do the thing.", workers={"worker": None}
+    )
+    session = orch.new_session()
+
+    events = await collect(orch.run_turn(session, "hi"))
+
+    failed = [e for e in events if isinstance(e, RunFailed)]
+    assert [e.agent_id for e in failed] == ["planner"]
+    assert "parseable JSON step list" in failed[0].error
+    assert not any(isinstance(e, PromptInjected) and e.agent_id == "worker" for e in events)
+    assert not any(isinstance(e, RunFinished) and e.agent_id == "worker" for e in events)
+
+
+async def test_pipeline_fails_cleanly_when_a_step_names_an_unknown_worker(make_agent):
+    plan = '[{"assignee": "nobody", "task": "go"}]'
+    orch, _, _ = pipeline_deck(make_agent, plan=plan, workers={"worker": None})
+    session = orch.new_session()
+
+    events = await collect(orch.run_turn(session, "hi"))
+    failed = [e for e in events if isinstance(e, RunFailed)]
+
+    assert [e.agent_id for e in failed] == ["planner"]
+    assert "not a worker in this deck" in failed[0].error
+
+
+async def test_pipeline_fails_cleanly_when_the_plan_has_too_many_steps(make_agent):
+    too_many = ", ".join(f'{{"assignee": "worker", "task": "t{i}"}}' for i in range(30))
+    plan = f"[{too_many}]"
+    orch, _, _ = pipeline_deck(make_agent, plan=plan, workers={"worker": None})
+    session = orch.new_session()
+
+    events = await collect(orch.run_turn(session, "hi"))
+    failed = [e for e in events if isinstance(e, RunFailed)]
+
+    assert [e.agent_id for e in failed] == ["planner"]
+    assert str(MAX_PIPELINE_STEPS) in failed[0].error
+
+
+async def test_pipeline_stops_one_workers_queue_without_affecting_others(make_agent):
+    plan = (
+        '[{"assignee": "flaky", "task": "one"}, {"assignee": "flaky", "task": "two"}, '
+        '{"assignee": "steady", "task": "only"}]'
+    )
+    orch, _, _ = pipeline_deck(
+        make_agent,
+        plan=plan,
+        workers={
+            "flaky": SequencedProvider(["first result"], fail_at=1),
+            "steady": None,
+        },
+    )
+    session = orch.new_session()
+
+    events = await collect(orch.run_turn(session, "hi"))
+    finished = {e.agent_id: e.text for e in events if isinstance(e, RunFinished)}
+    failed = [e.agent_id for e in events if isinstance(e, RunFailed)]
+
+    assert finished["flaky"] == "first result"  # step one
+    assert "steady" in finished  # unaffected by flaky's failure
+    assert failed == ["flaky"]
+    # flaky's second step was never attempted.
+    assert [m.content for m in session.thread("flaky")].count(
+        "two"
+    ) == 1  # the task, not a reply
+
+
+async def test_pipeline_stops_if_the_planner_never_answers(make_agent):
+    planner = make_agent("planner", SequencedProvider([], fail_at=0), role="planner")
+    worker = make_agent("worker", role="worker")
+    orch = Orchestrator([planner, worker], pattern=Pattern.PIPELINE)
+    session = orch.new_session()
+
+    events = await collect(orch.run_turn(session, "hi"))
+
+    assert [e.agent_id for e in events if isinstance(e, RunFailed)] == ["planner"]
+    assert not any(isinstance(e, PromptInjected) and e.agent_id == "worker" for e in events)
+    assert not any(isinstance(e, RunFinished) for e in events)
+
+
+@pytest.mark.parametrize(
+    "agents_kwargs",
+    [
+        [{"agent_id": "a", "role": "worker"}],  # no planner
+        [
+            {"agent_id": "a", "role": "planner"},
+            {"agent_id": "b", "role": "planner"},
+        ],  # two planners
+        [{"agent_id": "a", "role": "planner"}],  # no worker
+    ],
+)
+def test_a_pipeline_deck_needs_one_planner_and_at_least_one_worker(make_agent, agents_kwargs):
+    agents = [make_agent(**kwargs) for kwargs in agents_kwargs]
+    with pytest.raises(ValueError, match=r"planner|worker"):
+        Orchestrator(agents, pattern=Pattern.PIPELINE)
