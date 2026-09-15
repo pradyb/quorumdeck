@@ -51,7 +51,13 @@ StatusBar {
 }
 
 #prompt {
-    dock: bottom;
+    /* Not `dock: bottom`: Textual docks each edge independently by taking the
+       max of every widget docked to it, not the sum. Footer already docks to
+       bottom, so a second bottom dock here overlapped its own bottom border
+       row with Footer's row instead of stacking above it. Ordinary flow, last
+       before Footer in the compose order, lands in the same place without the
+       overlap. */
+    height: 3;
     border: tall $primary 50%;
 }
 

@@ -112,3 +112,18 @@ async def test_a_judge_deck_fills_every_panel_including_the_judges():
         # The judge's own prompt carries the candidate answers, so its input
         # token count is not comparable with a candidate's -- but all three ran.
         assert pilot.app.session.usage.output_tokens == 15
+
+
+async def test_the_prompt_and_the_footer_do_not_share_a_row(app):
+    """Two widgets both `dock: bottom` overlap -- Textual docks each edge by
+    the max extent of everything docked to it, not the sum, so a second
+    bottom dock in the same screen as Footer swallows Footer's row instead of
+    stacking above it. #prompt must stay in ordinary flow."""
+    async with app.run_test(size=(100, 30)) as pilot:
+        await pilot.pause()
+        prompt = pilot.app.query_one("#prompt")
+        footer = pilot.app.query_one("Footer")
+
+        prompt_rows = range(prompt.region.y, prompt.region.y + prompt.region.height)
+        assert footer.region.y not in prompt_rows
+        assert prompt.region.height == 3  # top border + content + bottom border, all present
