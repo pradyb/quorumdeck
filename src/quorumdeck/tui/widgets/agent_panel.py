@@ -19,6 +19,7 @@ from quorumdeck.core.agent import AgentSpec
 from quorumdeck.core.costs import format_usd
 from quorumdeck.core.events import Usage
 from quorumdeck.core.messages import Message, Role
+from quorumdeck.core.tools import summarize
 
 
 class AgentPanel(Widget):
@@ -80,9 +81,14 @@ class AgentPanel(Widget):
             self._stream = Markdown.get_stream(widget)
         await self._stream.write(text)
 
-    async def _close_stream(self) -> None:
+    async def _stop_stream(self) -> None:
+        """Just the stream lifecycle -- does not touch ``-active``/``-failed``.
+
+        A tool call interrupts an in-progress reply without ending the turn:
+        the panel needs a fresh stream for whatever text comes after the
+        tool result, but must stay marked busy in the meantime.
+        """
         stream, self._stream = self._stream, None
-        self.remove_class("-active")
         if stream is None:
             return
         try:
@@ -93,8 +99,21 @@ class AgentPanel(Widget):
             if asyncio.current_task() is not None and asyncio.current_task().cancelling():
                 raise
 
+    async def tool_call_started(self, name: str, arguments: str) -> None:
+        await self._stop_stream()
+        await self.transcript.mount(
+            Static(f"⚙ {name}({summarize(arguments)})", classes="tool-call")
+        )
+
+    async def tool_call_finished(self, result: str) -> None:
+        await self.transcript.mount(Static(f"✓ {summarize(result)}", classes="tool-result"))
+
+    async def tool_call_failed(self, error: str) -> None:
+        await self.transcript.mount(Static(f"✗ {error}", classes="tool-error"))
+
     async def end_assistant(self, usage: Usage, elapsed_s: float) -> None:
-        await self._close_stream()
+        await self._stop_stream()
+        self.remove_class("-active")
         self.usage = self.usage + usage
         meta = (
             f"{usage.input_tokens}→{usage.output_tokens} tok · "
@@ -103,12 +122,14 @@ class AgentPanel(Widget):
         await self.transcript.mount(Static(meta, classes="run-meta"))
 
     async def fail(self, error: str) -> None:
-        await self._close_stream()
+        await self._stop_stream()
+        self.remove_class("-active")
         self.add_class("-failed")
         await self.transcript.mount(Static(f"✗ {error}", classes="run-error"))
 
     async def clear(self) -> None:
-        await self._close_stream()
+        await self._stop_stream()
+        self.remove_class("-active")
         await self.transcript.remove_children()
         self.usage = Usage()
         self.remove_class("-failed")

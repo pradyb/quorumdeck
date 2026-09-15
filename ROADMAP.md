@@ -44,12 +44,51 @@ runtime. All five now do.
         the only place session state changes, since it's the one consumer
         `merge()` guarantees sees every stream's own events in order.
 
-## 0.3 — tools
+## 0.3 — tools (done)
 
-- [ ] MCP client support, so agents can actually do things rather than only talk.
-- [ ] Per-agent tool allowlists in `agents.yaml`.
-- [ ] Tool-call events in the core vocabulary (`ToolCallStarted` / `ToolResult`)
-      and a panel affordance for showing them.
+- [x] MCP client support, per-agent tool allowlists, and the tool-call events
+      (`ToolCallStarted`/`ToolCallFinished`/`ToolCallFailed`) this list once
+      named separately, now shipped together since none of them are useful
+      alone. `mcp_servers:` declares a stdio server once; `tools:` on an
+      agent names which of its tools that agent may call, or `"*"` for all.
+      Opt-in (`pip install quorumdeck[mcp]`): `mcp` is a real dependency, and
+      a deck with no `tools:` never imports it -- verified in a subprocess,
+      not just asserted.
+
+      `Agent.run()` is now a bounded loop rather than one completion call:
+      ask, run whatever tools the model asks for, feed the results back, ask
+      again, up to 10 rounds. With no tools offered it is exactly the one
+      call it always was -- every existing pattern's test suite passed
+      unchanged the moment this landed, which is the point of the bound
+      being on `Agent`, not on `Orchestrator`: judge, debate, pipeline and
+      fanout all got tool support for free, with no changes to any of them.
+
+      Real, not just mocked: a real local Ollama model, pointed at the real
+      `@modelcontextprotocol/server-filesystem`, correctly called
+      `filesystem.read_text_file` and answered a question it could only
+      answer by reading the file — verified through both `deck run` and the
+      TUI. That verification pass found two real bugs, not by review:
+      - `mcp.types.Tool` uses `input_schema`, not the wire-format
+        `inputSchema` I'd guessed.
+      - Splitting the tool pool's `AsyncExitStack.__aenter__`/`__aexit__`
+        across Textual's `on_mount`/`on_unmount` crashed on exit --
+        `RuntimeError: Attempted to exit cancel scope in a different task`.
+        anyio task groups must be entered and exited from the same task, and
+        Textual does not guarantee those two hooks share one. Fixed by
+        wrapping `open_tool_pool(...)` and `App.run_async()` in one
+        `async with` in a single coroutine (`tui.app.run_async`) instead,
+        so the pool's whole lifetime lives in one task throughout.
+
+      Tool names are prefixed `server.tool` using the *config key* the
+      server was declared under (`ClientSessionGroup`'s `connect_with_session`
+      with a self-supplied `Implementation(name=...)`), not whatever the
+      server calls itself in its own MCP handshake -- the prefix has to match
+      what a person wrote under `tools:`, and a third-party server's
+      self-reported name is not that.
+
+      No confirmation gate before a tool call runs, deliberately -- see
+      SECURITY.md. A failed tool call is reported and fed back to the model
+      as an error, not treated as fatal to the turn.
 
 ## 0.4 — the session layer
 
@@ -81,6 +120,12 @@ runtime. All five now do.
 
 - [ ] A second `Provider` implementation, mostly to prove the port is real.
 - [ ] Per-agent temperature sweeps (same model, different settings, side by side).
+- [ ] Remote MCP servers (Streamable HTTP), alongside stdio. Same `ToolSpec`
+      vocabulary; only how `mcp_pool.py` connects would differ.
+- [ ] An optional per-tool confirmation gate. Deliberately not built for 0.3
+      (see SECURITY.md) -- it would need to pause a turn, decide what happens
+      to other agents still running concurrently while a human is asked, and
+      answer differently in `deck run` (no one to ask) than in the TUI.
 - [x] `deck serve` -- a browser tab instead of a terminal, via the
       `textual-serve` package directly rather than the `textual` CLI's own
       `serve` subcommand, which lives in the heavier `textual-dev` devtools

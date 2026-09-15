@@ -1,0 +1,39 @@
+# One agent with real tools -- not a chat that talks about a file, an agent
+# that reads it. Uses the reference filesystem MCP server, scoped to one
+# directory on purpose: the server itself refuses anything outside it, so
+# this config genuinely cannot touch the rest of your disk.
+#
+# Verified against this exact shape: a real local model, asked something it
+# could only answer by actually reading a file, correctly called the tool and
+# answered from the real contents.
+#
+#   pip install "quorumdeck[mcp]"     # or: uv sync --extra mcp
+#   npx -y @modelcontextprotocol/server-filesystem --help   # confirms npx works
+#   deck --config examples/tools.yaml
+#
+# Any other stdio MCP server works the same way: add it under mcp_servers,
+# then list the tool names you want under an agent's own `tools:`. Nothing
+# asks for confirmation before a tool call runs -- see the README's Tools
+# section for what that does and does not mean, before pointing this at a
+# server whose tools can write or delete anything.
+version: 1
+
+mcp_servers:
+  filesystem:
+    command: npx
+    args:
+      - "-y"
+      - "@modelcontextprotocol/server-filesystem"
+      - "."  # the one directory this server -- and so this deck -- can touch
+
+agents:
+  - id: assistant
+    name: Assistant
+    model: anthropic/claude-opus-5
+    system_prompt: You have read access to one directory. Use it when asked about files in it.
+    tools:
+      filesystem:
+        - read_text_file
+        - list_directory
+        - search_files
+        # write_file and edit_file are deliberately left off this allowlist.

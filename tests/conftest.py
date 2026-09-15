@@ -55,9 +55,16 @@ def fake_provider() -> FakeProvider:
 
 @pytest.fixture
 def make_agent():
-    def _make(agent_id: str, provider: FakeProvider | None = None, **kwargs) -> Agent:
+    def _make(
+        agent_id: str,
+        provider: FakeProvider | None = None,
+        *,
+        tools=(),
+        call_tool=None,
+        **kwargs,
+    ) -> Agent:
         spec = AgentSpec(id=agent_id, model=f"fake/{agent_id}", **kwargs)
-        return Agent(spec, provider or FakeProvider())
+        return Agent(spec, provider or FakeProvider(), tools=tools, call_tool=call_tool)
 
     return _make
 

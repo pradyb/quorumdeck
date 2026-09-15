@@ -42,6 +42,9 @@ class AgentConfig(BaseModel):
     reasoning_effort: Literal["low", "medium", "high"] | None = None
     api_base: str | None = None
     role: Literal["peer", "planner", "worker", "critic", "judge"] = "peer"
+    # server name (a key in DeckFile.mcp_servers) -> allowed tool names on it,
+    # or "*" for every tool that server exposes. Absent or empty: no tools.
+    tools: dict[Identifier, list[str] | Literal["*"]] | None = None
 
     def to_spec(self, defaults: Defaults) -> AgentSpec:
         return AgentSpec(
@@ -62,7 +65,18 @@ class AgentConfig(BaseModel):
             ),
             api_base=self.api_base,
             role=self.role,
+            tool_allowlist=self.tools,
         )
+
+
+class McpServerConfig(BaseModel):
+    """One server to launch over stdio and offer to whichever agents ask for it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    command: str = Field(min_length=1)
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
 
 
 class DeckConfig(BaseModel):
@@ -84,6 +98,7 @@ class DeckFile(BaseModel):
     deck: DeckConfig = Field(default_factory=DeckConfig)
     defaults: Defaults = Field(default_factory=Defaults)
     agents: list[AgentConfig] = Field(min_length=1)
+    mcp_servers: dict[Identifier, McpServerConfig] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def _check(self) -> DeckFile:
@@ -138,6 +153,14 @@ class DeckFile(BaseModel):
                 raise ValueError(
                     "pattern 'pipeline' needs at least one agent with role 'worker'"
                 )
+
+        for agent in self.agents:
+            for server_name in agent.tools or {}:
+                if server_name not in self.mcp_servers:
+                    raise ValueError(
+                        f"agent '{agent.id}' has tools from '{server_name}', which is not "
+                        f"in mcp_servers: {', '.join(sorted(self.mcp_servers)) or '(none defined)'}"
+                    )
 
         return self
 

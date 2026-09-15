@@ -167,6 +167,57 @@ silently falling back to another.
 
 ---
 
+## Tools (MCP)
+
+An agent with tools can do things, not just talk about them. quorumdeck talks
+to [MCP](https://modelcontextprotocol.io) servers over stdio -- the same
+protocol Claude Desktop and most other MCP hosts use, so the same servers
+work here:
+
+```bash
+pip install "quorumdeck[mcp]"    # opt-in: pulls in the mcp package
+```
+
+```yaml
+mcp_servers:
+  filesystem:
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allow"]
+
+agents:
+  - id: assistant
+    model: anthropic/claude-opus-5
+    tools:
+      filesystem: ["read_text_file", "list_directory"]   # or "*" for every tool it exposes
+```
+
+A tool's name in a panel or in `deck run`'s output is always `server.tool`
+(`filesystem.read_text_file`) -- prefixed with the config key you gave the
+server, not whatever the server calls itself internally, so it always matches
+what you wrote under `tools:`.
+
+**There is no confirmation prompt before a tool call runs.** A configured
+tool is trusted the same way a configured model is: by choosing to put it in
+`agents.yaml`. If a server exposes something you do not want an agent doing
+unattended, leave it off that agent's allowlist -- `examples/tools.yaml`
+deliberately admits `read_text_file` and not `write_file` from the same
+server, for exactly this reason. A tool call that fails is reported to the
+model as an error and fed back to it, not treated as fatal -- the agent gets
+a chance to recover, the same way a person would if a command they ran
+failed.
+
+A tool-using turn is a bounded loop: ask, call whatever tools the model asks
+for, feed the results back, ask again -- up to 10 rounds, so a model stuck
+calling tools instead of ever answering cannot run forever or unboundedly
+spend your `budget_usd`.
+
+A stdio server's own diagnostic output goes to
+`~/.local/share/quorumdeck/mcp.log`, not your terminal -- raw subprocess
+output mixed into a running TUI corrupts it, the same reason LiteLLM's own
+debug printing is suppressed too.
+
+---
+
 ## Keys
 
 ```bash

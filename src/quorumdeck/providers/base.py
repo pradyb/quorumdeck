@@ -13,6 +13,7 @@ from typing import Any, Protocol, TypeAlias, runtime_checkable
 
 from quorumdeck.core.events import Usage
 from quorumdeck.core.messages import Message
+from quorumdeck.core.tools import ToolSpec
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +25,7 @@ class CompletionRequest:
     reasoning_effort: str | None = None
     timeout_s: float | None = None
     api_base: str | None = None
+    tools: Sequence[ToolSpec] = ()
     extra: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -38,12 +40,22 @@ class Reasoning:
 
 
 @dataclass(frozen=True, slots=True)
+class ToolCallRequested:
+    """The model wants to call a tool. Arguments arrive as raw JSON text --
+    validating and parsing it is Agent's job, not the provider adapter's."""
+
+    id: str
+    name: str
+    arguments: str
+
+
+@dataclass(frozen=True, slots=True)
 class Completed:
     usage: Usage
     finish_reason: str | None = None
 
 
-ProviderEvent: TypeAlias = Chunk | Reasoning | Completed
+ProviderEvent: TypeAlias = Chunk | Reasoning | ToolCallRequested | Completed
 
 
 class ProviderError(RuntimeError):
@@ -59,7 +71,9 @@ class Provider(Protocol):
     def stream(self, request: CompletionRequest) -> AsyncIterator[ProviderEvent]:
         """Yield events until the response is complete.
 
-        Implementations must emit exactly one :class:`Completed` last, and must
-        raise :class:`ProviderError` rather than leaking SDK exceptions.
+        Implementations must emit exactly one :class:`Completed` last -- even
+        when the model's turn ends in one or more :class:`ToolCallRequested`
+        instead of text -- and must raise :class:`ProviderError` rather than
+        leaking SDK exceptions.
         """
         ...

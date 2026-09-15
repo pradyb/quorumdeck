@@ -19,6 +19,7 @@ from quorumdeck.providers.base import (
     ProviderError,
     ProviderEvent,
     Reasoning,
+    ToolCallRequested,
 )
 
 log = logging.getLogger(__name__)
@@ -64,6 +65,18 @@ class LiteLLMProvider:
             kwargs["timeout"] = request.timeout_s
         if request.api_base is not None:
             kwargs["api_base"] = request.api_base
+        if request.tools:
+            kwargs["tools"] = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": dict(tool.parameters),
+                    },
+                }
+                for tool in request.tools
+            ]
         kwargs.update(request.extra)
         return kwargs
 
@@ -74,6 +87,11 @@ class LiteLLMProvider:
         input_tokens = 0
         output_tokens = 0
         finish_reason: str | None = None
+        # Streamed tool calls arrive as fragments keyed by position, id/name on
+        # the first fragment only, arguments accumulating as raw JSON text
+        # across however many chunks it takes -- there is no "this one is
+        # done" marker, so nothing is finalized until the stream itself ends.
+        tool_calls: dict[int, dict[str, str]] = {}
 
         try:
             response = await litellm.acompletion(**kwargs)
@@ -101,8 +119,31 @@ class LiteLLMProvider:
                 text = getattr(delta, "content", None)
                 if text:
                     yield Chunk(text)
+
+                for fragment in getattr(delta, "tool_calls", None) or []:
+                    index = getattr(fragment, "index", 0)
+                    call = tool_calls.setdefault(index, {"id": "", "name": "", "arguments": ""})
+                    if getattr(fragment, "id", None):
+                        call["id"] = fragment.id
+                    function = getattr(fragment, "function", None)
+                    if function is not None:
+                        if getattr(function, "name", None):
+                            call["name"] += function.name
+                        if getattr(function, "arguments", None):
+                            call["arguments"] += function.arguments
         except Exception as exc:  # translated into our own type below
             raise ProviderError(_explain(exc)) from exc
+
+        for index in sorted(tool_calls):
+            call = tool_calls[index]
+            # A local model with weak tool support can emit a call with no id;
+            # position in the response is still a stable enough handle for
+            # matching the eventual tool result back to it.
+            yield ToolCallRequested(
+                id=call["id"] or f"call_{index}",
+                name=call["name"],
+                arguments=call["arguments"],
+            )
 
         yield Completed(
             usage=Usage(

@@ -25,9 +25,19 @@ from quorumdeck.config.loader import ConfigError
 from quorumdeck.config.schema import DeckFile
 from quorumdeck.core.agent import Agent
 from quorumdeck.core.costs import format_usd
-from quorumdeck.core.events import RunFailed, RunFinished, RunStarted, TextDelta
+from quorumdeck.core.events import (
+    RunFailed,
+    RunFinished,
+    RunStarted,
+    TextDelta,
+    ToolCallFailed,
+    ToolCallFinished,
+    ToolCallStarted,
+)
 from quorumdeck.core.orchestrator import BudgetExceeded, Orchestrator, Pattern
 from quorumdeck.core.session import Session
+from quorumdeck.core.tools import summarize
+from quorumdeck.mcp_pool import open_tool_pool
 from quorumdeck.providers import default_provider
 
 
@@ -162,92 +172,123 @@ async def _stream_to_stdout(
     config: DeckFile, prompt: str, *, resume: Path | None = None, save: bool = False
 ) -> int:
     provider = default_provider()
-    agents = [
-        Agent(spec, provider, timeout_s=config.defaults.timeout_s) for spec in config.specs()
-    ]
-    orchestrator = Orchestrator(
-        agents,
-        pattern=config.deck.pattern,
-        rounds=config.deck.rounds,
-        judge_id=config.deck.judge,
-        budget_usd=config.deck.budget_usd,
-    )
-    if resume is not None:
-        session = loader.resume_session(
-            resume, agent_ids=orchestrator.agent_ids, max_messages=config.defaults.max_messages
+
+    async with open_tool_pool(config) as pool:
+        agents = [
+            Agent(
+                spec,
+                provider,
+                timeout_s=config.defaults.timeout_s,
+                tools=pool.specs_for(spec.tool_allowlist),
+                call_tool=pool.call,
+            )
+            for spec in config.specs()
+        ]
+        orchestrator = Orchestrator(
+            agents,
+            pattern=config.deck.pattern,
+            rounds=config.deck.rounds,
+            judge_id=config.deck.judge,
+            budget_usd=config.deck.budget_usd,
         )
-        prior = sum(len(t) for _, t in session)
-        print(f"resumed {resume} ({prior} prior messages)", file=sys.stderr)
-    else:
-        session = orchestrator.new_session(max_messages=config.defaults.max_messages)
-    labels = {a.id: a.spec.label for a in agents}
+        if resume is not None:
+            session = loader.resume_session(
+                resume,
+                agent_ids=orchestrator.agent_ids,
+                max_messages=config.defaults.max_messages,
+            )
+            prior = sum(len(t) for _, t in session)
+            print(f"resumed {resume} ({prior} prior messages)", file=sys.stderr)
+        else:
+            session = orchestrator.new_session(max_messages=config.defaults.max_messages)
+        labels = {a.id: a.spec.label for a in agents}
 
-    # Live streaming only makes sense when one agent is speaking. Interleaving
-    # several concurrent streams into one file handle shreds every answer into
-    # a few words per header, so a deck prints each reply whole instead.
-    live = len(agents) == 1
+        # Live streaming only makes sense when one agent is speaking. Interleaving
+        # several concurrent streams into one file handle shreds every answer into
+        # a few words per header, so a deck prints each reply whole instead.
+        live = len(agents) == 1
 
-    # Patterns that start agents at once produce replies in latency order, which
-    # varies run to run. Hold those and print in config order, matching the panel
-    # order in the TUI and making the same deck reproducible. Purely sequential
-    # patterns finish in the order the agents spoke, which is already the order
-    # worth reading, so they print as they go.
-    ordered = config.deck.pattern in {Pattern.FANOUT, Pattern.JUDGE}
-    position = {agent.id: index for index, agent in enumerate(agents)}
-    # A judge rules on the candidates, so it reads last however it is declared.
-    rank = {a.id: (a.id == config.deck.judge, position[a.id]) for a in agents}
-    held: list[tuple[tuple[bool, int], str]] = []
-    failures = 0
+        # Patterns that start agents at once produce replies in latency order,
+        # which varies run to run. Hold those and print in config order,
+        # matching the panel order in the TUI and making the same deck
+        # reproducible. Purely sequential patterns finish in the order the
+        # agents spoke, which is already the order worth reading, so they
+        # print as they go.
+        ordered = config.deck.pattern in {Pattern.FANOUT, Pattern.JUDGE}
+        position = {agent.id: index for index, agent in enumerate(agents)}
+        # A judge rules on the candidates, so it reads last however declared.
+        rank = {a.id: (a.id == config.deck.judge, position[a.id]) for a in agents}
+        held: list[tuple[tuple[bool, int], str]] = []
+        failures = 0
 
-    try:
-        async for event in orchestrator.run_turn(session, prompt):
-            match event:
-                case RunStarted(agent_id=agent_id, model=model):
-                    if live:
-                        print(f"\n── {labels[agent_id]} · {model} ──", flush=True)
-                case TextDelta(text=text):
-                    if live:
-                        print(text, end="", flush=True)
-                case RunFinished(
-                    agent_id=agent_id, model=model, text=text, usage=usage, elapsed_s=elapsed
-                ):
-                    footer = (
-                        f"\n   [{usage.input_tokens}→{usage.output_tokens} tok · "
-                        f"{format_usd(usage.cost_usd)} · {elapsed:.1f}s]"
-                    )
-                    if live:
-                        print(footer, flush=True)
-                    else:
-                        # RunFinished carries the whole reply, so grouping needs
-                        # no buffer of deltas of its own.
-                        block = f"\n── {labels[agent_id]} · {model} ──\n{text}{footer}"
-                        if ordered:
-                            held.append((rank[agent_id], block))
+        try:
+            async for event in orchestrator.run_turn(session, prompt):
+                match event:
+                    case RunStarted(agent_id=agent_id, model=model):
+                        if live:
+                            print(f"\n── {labels[agent_id]} · {model} ──", flush=True)
+                    case TextDelta(text=text):
+                        if live:
+                            print(text, end="", flush=True)
+                    case ToolCallStarted(agent_id=agent_id, name=name, arguments=arguments):
+                        # Printed unconditionally, live or grouped: a tool
+                        # call belongs to one agent's own turn causally, the
+                        # same reasoning RunFailed already prints regardless
+                        # of mode. Several agents' tool calls can interleave
+                        # in a fanout, which is informative, not confusing,
+                        # the way raw token-level text would be.
+                        print(
+                            f"\n   ⚙ [{labels[agent_id]}] {name}({summarize(arguments)})",
+                            flush=True,
+                        )
+                    case ToolCallFinished(agent_id=agent_id, name=name, result=result):
+                        print(f"   ✓ {summarize(result)}", flush=True)
+                    case ToolCallFailed(agent_id=agent_id, name=name, error=error):
+                        print(f"   ✗ {error}", file=sys.stderr, flush=True)
+                    case RunFinished(
+                        agent_id=agent_id,
+                        model=model,
+                        text=text,
+                        usage=usage,
+                        elapsed_s=elapsed,
+                    ):
+                        footer = (
+                            f"\n   [{usage.input_tokens}→{usage.output_tokens} tok · "
+                            f"{format_usd(usage.cost_usd)} · {elapsed:.1f}s]"
+                        )
+                        if live:
+                            print(footer, flush=True)
                         else:
-                            print(block, flush=True)
-                case RunFailed(agent_id=agent_id, error=error):
-                    failures += 1
-                    print(f"\n   error ({labels[agent_id]}): {error}", file=sys.stderr)
-    except (NotImplementedError, BudgetExceeded) as exc:
-        print(f"error: {exc}", file=sys.stderr)
-        return 1
+                            # RunFinished carries the whole reply, so grouping
+                            # needs no buffer of deltas of its own.
+                            block = f"\n── {labels[agent_id]} · {model} ──\n{text}{footer}"
+                            if ordered:
+                                held.append((rank[agent_id], block))
+                            else:
+                                print(block, flush=True)
+                    case RunFailed(agent_id=agent_id, error=error):
+                        failures += 1
+                        print(f"\n   error ({labels[agent_id]}): {error}", file=sys.stderr)
+        except (NotImplementedError, BudgetExceeded) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
 
-    for _, block in sorted(held, key=lambda item: item[0]):
-        print(block, flush=True)
+        for _, block in sorted(held, key=lambda item: item[0]):
+            print(block, flush=True)
 
-    total = session.usage
-    print(
-        f"\ntotal: {total.total_tokens} tok · {format_usd(total.cost_usd)}",
-        file=sys.stderr,
-    )
+        total = session.usage
+        print(
+            f"\ntotal: {total.total_tokens} tok · {format_usd(total.cost_usd)}",
+            file=sys.stderr,
+        )
 
-    if save:
-        stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-        saved_path = loader.sessions_dir() / f"{stamp}.json"
-        session.save(saved_path)
-        print(f"saved {saved_path}", file=sys.stderr)
+        if save:
+            stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+            saved_path = loader.sessions_dir() / f"{stamp}.json"
+            session.save(saved_path)
+            print(f"saved {saved_path}", file=sys.stderr)
 
-    return 1 if failures else 0
+        return 1 if failures else 0
 
 
 def _cmd_agents(args: argparse.Namespace) -> int:

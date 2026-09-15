@@ -292,3 +292,103 @@ async def test_a_turn_is_refused_once_the_budget_is_already_spent():
         assert pilot.app.session.thread("a") == []
         panel = pilot.app.query_one("#panel-a", AgentPanel)
         assert not list(panel.query(".user-turn"))
+
+
+TOOL_DECK = {
+    "version": 1,
+    "mcp_servers": {"demo": {"command": "unused"}},
+    "agents": [{"id": "a", "name": "A", "model": "fake/a", "tools": {"demo": "*"}}],
+}
+
+
+def make_fake_tool_pool(tools, call_tool):
+    """Stands in for a live quorumdeck.mcp_pool.ToolPool: same interface, no
+    real MCP connection -- passed straight to QuorumDeckApp(tool_pool=...),
+    the same way a real one is once mcp_pool.open_tool_pool has connected it.
+    """
+    from quorumdeck.core.tools import ToolError
+
+    class FakePool:
+        def specs_for(self, allowlist):
+            return list(tools) if allowlist else []
+
+        async def call(self, name, arguments):
+            try:
+                return await call_tool(name, arguments)
+            except Exception as exc:
+                raise ToolError(str(exc)) from exc
+
+    return FakePool()
+
+
+class _ToolCallingProvider:
+    """Round 1 requests a tool call; round 2 answers using its result."""
+
+    name = "tool-calling"
+
+    def __init__(self, *, fail=False):
+        self._call = 0
+        self._fail = fail
+
+    async def stream(self, request):
+        from quorumdeck.core.events import Usage
+        from quorumdeck.providers.base import Chunk, Completed, ToolCallRequested
+
+        call = self._call
+        self._call += 1
+        if call == 0:
+            yield ToolCallRequested(id="1", name="demo.echo", arguments='{"x": 1}')
+        else:
+            yield Chunk("42")
+        yield Completed(usage=Usage(1, 1, 0.0), finish_reason="stop")
+
+
+async def test_a_tool_call_renders_in_the_panel():
+    from quorumdeck.core.tools import ToolSpec
+
+    async def call_tool(name, arguments):
+        return "the answer"
+
+    pool = make_fake_tool_pool(
+        [ToolSpec(name="demo.echo", description="", parameters={})], call_tool
+    )
+    app = QuorumDeckApp(
+        DeckFile.from_mapping(TOOL_DECK), _ToolCallingProvider(), tool_pool=pool
+    )
+    async with app.run_test() as pilot:
+        await pilot.click("#prompt")
+        await pilot.press(*"hi")
+        await pilot.press("enter")
+        await pilot.app.workers.wait_for_complete()
+        await pilot.pause()
+
+        panel = pilot.app.query_one("#panel-a", AgentPanel)
+        assert list(panel.query(".tool-call"))
+        assert list(panel.query(".tool-result"))
+        assert not panel.has_class("-failed")
+        assert pilot.app.session.thread("a")[-1].content == "42"
+
+
+async def test_a_failed_tool_call_renders_but_does_not_fail_the_panel():
+    from quorumdeck.core.tools import ToolError, ToolSpec
+
+    async def call_tool(name, arguments):
+        raise ToolError("permission denied")
+
+    pool = make_fake_tool_pool(
+        [ToolSpec(name="demo.echo", description="", parameters={})], call_tool
+    )
+    app = QuorumDeckApp(
+        DeckFile.from_mapping(TOOL_DECK), _ToolCallingProvider(), tool_pool=pool
+    )
+    async with app.run_test() as pilot:
+        await pilot.click("#prompt")
+        await pilot.press(*"hi")
+        await pilot.press("enter")
+        await pilot.app.workers.wait_for_complete()
+        await pilot.pause()
+
+        panel = pilot.app.query_one("#panel-a", AgentPanel)
+        assert list(panel.query(".tool-error"))
+        # The tool call failed, not the turn -- the model still answered.
+        assert not panel.has_class("-failed")

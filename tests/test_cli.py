@@ -71,7 +71,7 @@ def test_litellm_is_not_imported_just_to_show_help():
             "-c",
             "import quorumdeck.cli, sys; "
             "print('litellm' in sys.modules or 'textual' in sys.modules "
-            "or 'textual_serve' in sys.modules)",
+            "or 'textual_serve' in sys.modules or 'mcp' in sys.modules)",
         ],
         capture_output=True,
         text=True,

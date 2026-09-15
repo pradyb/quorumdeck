@@ -84,6 +84,36 @@ class PromptInjected:
     text: str
 
 
+@dataclass(frozen=True, slots=True)
+class ToolCallStarted:
+    agent_id: str
+    name: str  # "server.tool", already prefixed by the tool pool
+    arguments: str  # raw JSON text, shown as-is rather than re-serialized
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallFinished:
+    agent_id: str
+    name: str
+    result: str
+    elapsed_s: float
+
+
+@dataclass(frozen=True, slots=True)
+class ToolCallFailed:
+    agent_id: str
+    name: str
+    error: str
+
+
 Event: TypeAlias = (
-    RunStarted | TextDelta | ReasoningDelta | RunFinished | RunFailed | PromptInjected
+    RunStarted
+    | TextDelta
+    | ReasoningDelta
+    | RunFinished
+    | RunFailed
+    | PromptInjected
+    | ToolCallStarted
+    | ToolCallFinished
+    | ToolCallFailed
 )

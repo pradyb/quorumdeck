@@ -7,6 +7,7 @@ backend never touches this file.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -25,8 +26,12 @@ from quorumdeck.core.events import (
     RunFinished,
     RunStarted,
     TextDelta,
+    ToolCallFailed,
+    ToolCallFinished,
+    ToolCallStarted,
 )
 from quorumdeck.core.orchestrator import BudgetExceeded, Orchestrator
+from quorumdeck.mcp_pool import ToolPool, open_tool_pool
 from quorumdeck.providers import Provider, default_provider
 from quorumdeck.tui.screens.help import HelpScreen
 from quorumdeck.tui.widgets.agent_panel import AgentPanel
@@ -50,6 +55,7 @@ class QuorumDeckApp(App[None]):
         provider: Provider | None = None,
         *,
         resume: Path | None = None,
+        tool_pool: ToolPool | None = None,
     ) -> None:
         super().__init__()
         # A deck is read at a glance across several panels at once, so it
@@ -59,9 +65,24 @@ class QuorumDeckApp(App[None]):
         self.theme = "tokyo-night"
         self.config = config
         engine = provider or default_provider()
+        # Already-connected, not opened here: an MCP connection uses anyio
+        # task groups, which must be entered and exited from the same task --
+        # Textual does not guarantee on_mount and on_unmount share one, so the
+        # pool's whole lifetime has to wrap App.run_async() from the outside
+        # (see the module-level run() below), not live inside app methods.
+        # None here (every test that builds a bare QuorumDeckApp does) means
+        # no deck uses tools; that is exactly what an empty pool already says.
+        pool = tool_pool or ToolPool(group=None, tools={})
         specs = config.specs()
         self.agents = [
-            Agent(spec, engine, timeout_s=config.defaults.timeout_s) for spec in specs
+            Agent(
+                spec,
+                engine,
+                timeout_s=config.defaults.timeout_s,
+                tools=pool.specs_for(spec.tool_allowlist),
+                call_tool=pool.call,
+            )
+            for spec in specs
         ]
         self.orchestrator = Orchestrator(
             self.agents,
@@ -150,6 +171,12 @@ class QuorumDeckApp(App[None]):
                         self.panel(agent_id).begin_assistant()
                     case TextDelta(agent_id=agent_id, text=text):
                         await self.panel(agent_id).append(text)
+                    case ToolCallStarted(agent_id=agent_id, name=name, arguments=arguments):
+                        await self.panel(agent_id).tool_call_started(name, arguments)
+                    case ToolCallFinished(agent_id=agent_id, result=result):
+                        await self.panel(agent_id).tool_call_finished(result)
+                    case ToolCallFailed(agent_id=agent_id, error=error):
+                        await self.panel(agent_id).tool_call_failed(error)
                     case RunFinished(agent_id=agent_id, usage=usage, elapsed_s=elapsed):
                         await self.panel(agent_id).end_assistant(usage, elapsed)
                         status.usage = self.session.usage
@@ -186,7 +213,17 @@ class QuorumDeckApp(App[None]):
         self.push_screen(HelpScreen())
 
 
+async def run_async(
+    config: DeckFile, provider: Provider | None = None, *, resume: Path | None = None
+) -> None:
+    # The pool's async context manager and App.run_async() are awaited from
+    # this one coroutine, so they share a task throughout -- the constraint
+    # QuorumDeckApp's own docstring note above explains.
+    async with open_tool_pool(config) as pool:
+        await QuorumDeckApp(config, provider, resume=resume, tool_pool=pool).run_async()
+
+
 def run(
     config: DeckFile, provider: Provider | None = None, *, resume: Path | None = None
 ) -> None:
-    QuorumDeckApp(config, provider, resume=resume).run()
+    asyncio.run(run_async(config, provider, resume=resume))
