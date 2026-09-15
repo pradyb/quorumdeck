@@ -1,0 +1,20 @@
+# Schema-valid today; the debate runtime lands in 0.2 (see ROADMAP.md).
+version: 1
+
+deck:
+  pattern: debate
+  rounds: 2
+  title: Debate
+
+agents:
+  - id: author
+    name: Author
+    model: anthropic/claude-opus-5
+    system_prompt: Answer directly. When critiqued, revise rather than defend.
+    role: peer
+
+  - id: critic
+    name: Critic
+    model: openai/gpt-5
+    system_prompt: Find the strongest concrete objection. No praise.
+    role: critic

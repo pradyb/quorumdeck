@@ -1,0 +1,25 @@
+# The same prompt to three models at once, answers side by side.
+# Costs and latency are shown per panel so the comparison is honest.
+version: 1
+
+deck:
+  pattern: fanout
+  title: Compare
+
+defaults:
+  temperature: 0.7
+  timeout_s: 120
+
+agents:
+  - id: claude
+    name: Claude
+    model: anthropic/claude-opus-5
+
+  - id: gpt
+    name: GPT
+    model: openai/gpt-5
+
+  - id: local
+    name: Local
+    model: ollama/llama3.3
+    api_base: http://localhost:11434

@@ -1,0 +1,73 @@
+Screen {
+    layers: base overlay;
+}
+
+#deck {
+    height: 1fr;
+}
+
+AgentPanel {
+    width: 1fr;
+    height: 1fr;
+    border: round $primary 40%;
+    border-title-align: left;
+    padding: 0 1;
+}
+
+AgentPanel.-active {
+    border: round $accent;
+}
+
+AgentPanel.-failed {
+    border: round $error;
+}
+
+AgentPanel > VerticalScroll {
+    scrollbar-size-vertical: 1;
+}
+
+.user-turn {
+    color: $text-muted;
+    text-style: italic;
+    padding: 1 0 0 0;
+}
+
+.run-meta {
+    color: $text-muted;
+    text-align: right;
+    padding: 0 0 1 0;
+}
+
+.run-error {
+    color: $error;
+    padding: 0 0 1 0;
+}
+
+StatusBar {
+    height: 1;
+    background: $panel;
+    color: $text-muted;
+    padding: 0 1;
+}
+
+#prompt {
+    dock: bottom;
+    border: tall $primary 50%;
+}
+
+#prompt:focus {
+    border: tall $accent;
+}
+
+HelpScreen {
+    align: center middle;
+}
+
+HelpScreen > Vertical {
+    width: 64;
+    height: auto;
+    max-height: 80%;
+    border: round $accent;
+    background: $surface;
+    padding: 1 2;
+}

@@ -1,0 +1,185 @@
+# agentdeck
+
+**A terminal console for running several AI agents — on different models, from different providers — side by side in one session.**
+
+Most terminal LLM clients give you one model at a time and a dropdown to switch.
+`agentdeck` starts from the opposite premise: the interesting thing is what happens
+when a Claude agent, a GPT agent and a local Llama agent all answer the same
+question at once, and you can see the answers, the latency and the cost next to
+each other.
+
+Bring your own model. Bring several.
+
+```
+┌─ Claude · anthropic/claude-opus-5 ─┬─ GPT · openai/gpt-5 ───────────────┐
+│ › Design a token bucket limiter    │ › Design a token bucket limiter    │
+│                                    │                                    │
+│ Use a monotonic clock and lazy     │ A token bucket needs four pieces   │
+│ refill rather than a background…▌  │ of state: capacity, tokens,…▌      │
+│                                    │                                    │
+│      1204→318 tok · $0.0089 · 4.1s │      1204→402 tok · $0.0051 · 2.8s │
+└────────────────────────────────────┴────────────────────────────────────┘
+ ready  ·  fanout × 2  ·  1922 tok  ·  $0.01
+```
+
+> **Status: alpha (0.1).** The `single` and `fanout` patterns work end to end.
+> `debate`, `pipeline` and `judge` validate in config but are not implemented yet —
+> see [ROADMAP.md](ROADMAP.md).
+
+---
+
+## Why this exists
+
+| | |
+| --- | --- |
+| **Compare honestly** | Same prompt, same moment, same screen. Per-agent tokens, cost and wall-clock, so "which model should we use for this" stops being a vibe. |
+| **One bill, many providers** | 100+ backends through [LiteLLM](https://github.com/BerriAI/litellm) — Anthropic, OpenAI, Gemini, Bedrock, Groq, Mistral, OpenRouter, Ollama, anything OpenAI-shaped. |
+| **Agents as config** | A deck is a YAML file you commit next to the code it is about. Share a deck, not a screenshot. |
+| **Keys stay out of the repo** | Credentials live in the OS keychain (or the environment). `agents.yaml` is safe to check in. |
+
+---
+
+## Install
+
+Requires Python 3.11+.
+
+```bash
+# Run without installing
+uvx agentdeck
+
+# Or install
+uv tool install agentdeck     # or: pipx install agentdeck
+```
+
+## Quick start
+
+```bash
+deck config init                 # writes ~/.config/agentdeck/agents.yaml
+deck keys set anthropic          # prompts; stored in the OS keychain
+deck                             # launch the TUI
+```
+
+One-shot, no UI — pipes and scripts welcome:
+
+```bash
+deck run "Explain this stack trace" < trace.txt
+deck run --pattern fanout "Which index would you add here?"
+```
+
+---
+
+## Configuring a deck
+
+`agents.yaml` is the whole interface. Precedence: `--config` → `./agentdeck.yaml`
+→ `~/.config/agentdeck/agents.yaml`.
+
+```yaml
+version: 1
+
+deck:
+  pattern: fanout        # single | fanout | debate | pipeline | judge
+  title: Compare
+
+defaults:
+  temperature: 0.7
+  timeout_s: 120
+
+agents:
+  - id: claude
+    name: Claude
+    model: anthropic/claude-opus-5
+    system_prompt: Answer concisely. Show the tradeoff, not just the answer.
+
+  - id: gpt
+    name: GPT
+    model: openai/gpt-5
+
+  - id: local
+    name: Local
+    model: ollama/llama3.3
+    api_base: http://localhost:11434
+```
+
+Model ids are LiteLLM ids: `provider/model`. More in [`examples/`](examples/).
+
+### Orchestration patterns
+
+| Pattern | What one prompt means | Status |
+| --- | --- | --- |
+| `single` | One agent answers. Ordinary chat. | ✅ shipped |
+| `fanout` | Every agent answers the same prompt in parallel, side by side. | ✅ shipped |
+| `debate` | One agent answers, another critiques, the first revises, for `rounds`. | 🚧 0.2 |
+| `pipeline` | A `planner` decomposes the task; `worker` agents execute the steps. | 🚧 0.2 |
+| `judge` | Agents answer, then a designated `judge` merges or scores. | 🚧 0.2 |
+
+Unimplemented patterns are rejected at runtime with a clear message rather than
+silently falling back — the config schema is stable ahead of the runtime on purpose.
+
+---
+
+## Keys
+
+```bash
+deck keys list                   # where each provider's key comes from
+deck keys set openai             # store in the OS keychain (never echoed)
+deck keys rm openai
+```
+
+Environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, …) always win over
+the keychain, so CI and containers work without a keyring backend. Local backends
+like Ollama and credential-chain backends like Bedrock need no key at all.
+
+---
+
+## Keyboard
+
+| Key | Action |
+| --- | --- |
+| `enter` | Send |
+| `ctrl+l` | Clear panels |
+| `ctrl+s` | Save session to `~/.local/share/agentdeck/sessions/` |
+| `f1` / `?` | Help |
+| `ctrl+q` | Quit |
+
+---
+
+## Architecture
+
+The layering is the load-bearing decision, not an aesthetic one:
+
+```
+src/agentdeck/
+  core/        agent · orchestrator · session · events · messages · costs
+  providers/   base (the port) · litellm_provider (the only adapter today)
+  config/      schema (pydantic) · loader · secrets (keychain)
+  tui/         app · widgets · screens
+  cli.py
+```
+
+Two rules hold it together, and both are enforced by the test suite:
+
+1. **`core/` imports no vendor SDK and no UI framework.** It is pure async Python
+   over its own event vocabulary, which is why every orchestration pattern is
+   testable against a scripted fake provider with no network.
+2. **`tui/` imports no provider.** It consumes `core` events. Adding a backend
+   never touches the UI; adding a UI never touches a backend.
+
+If LiteLLM turns out to be the wrong engine, replacing it means writing one new
+module in `providers/` that satisfies the `Provider` protocol — roughly 80 lines —
+and changing nothing else.
+
+## Development
+
+```bash
+uv sync
+uv run pytest
+uv run ruff check .
+uv run textual run --dev agentdeck.tui.app:AgentDeckApp   # with devtools
+```
+
+Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). The most useful
+places to start are listed in [ROADMAP.md](ROADMAP.md).
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE).

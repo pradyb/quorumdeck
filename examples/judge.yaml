@@ -1,0 +1,22 @@
+# Schema-valid today; the judge runtime lands in 0.2 (see ROADMAP.md).
+version: 1
+
+deck:
+  pattern: judge
+  judge: referee
+  title: Consensus
+
+agents:
+  - id: a
+    name: Answer A
+    model: anthropic/claude-opus-5
+
+  - id: b
+    name: Answer B
+    model: openai/gpt-5
+
+  - id: referee
+    name: Referee
+    model: anthropic/claude-opus-5
+    system_prompt: Compare the candidate answers and merge the best of each.
+    role: judge

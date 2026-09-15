@@ -1,0 +1,35 @@
+name: Bug report
+description: Something behaved differently than documented
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Include the exact error text if there is one.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+    validations:
+      required: true
+  - type: textarea
+    id: config
+    attributes:
+      label: Your agents.yaml
+      description: Redact anything sensitive. Model ids and the pattern are the useful parts.
+      render: yaml
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `deck --version`
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: OS and Python version
+      placeholder: macOS 15.2, Python 3.13

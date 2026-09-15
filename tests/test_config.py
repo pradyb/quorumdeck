@@ -1,0 +1,148 @@
+from __future__ import annotations
+
+import pytest
+
+from agentdeck.config import loader
+from agentdeck.config.loader import ConfigError
+from agentdeck.config.schema import DeckFile
+from agentdeck.core.orchestrator import Pattern
+
+MINIMAL = """
+version: 1
+agents:
+  - id: main
+    model: anthropic/claude-opus-5
+"""
+
+
+def write(tmp_path, text, name="agentdeck.yaml"):
+    path = tmp_path / name
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_minimal_config_loads_with_defaults(tmp_path):
+    config = loader.load(write(tmp_path, MINIMAL))
+
+    assert config.deck.pattern is Pattern.SINGLE
+    assert config.defaults.timeout_s == 120.0
+    spec = config.specs()[0]
+    assert spec.id == "main"
+    assert spec.label == "main"
+
+
+def test_defaults_flow_into_specs_but_agent_wins(tmp_path):
+    text = """
+version: 1
+deck: {pattern: fanout}
+defaults: {temperature: 0.2, max_tokens: 100}
+agents:
+  - {id: a, model: openai/gpt-5}
+  - {id: b, model: openai/gpt-5, temperature: 0.9}
+"""
+    specs = loader.load(write(tmp_path, text)).specs()
+
+    assert specs[0].temperature == 0.2
+    assert specs[1].temperature == 0.9
+    assert specs[0].max_tokens == specs[1].max_tokens == 100
+
+
+def test_project_config_beats_user_config(tmp_path, monkeypatch):
+    home = tmp_path / "xdg"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(home))
+    user_file = loader.user_config_path()
+    user_file.parent.mkdir(parents=True)
+    user_file.write_text(MINIMAL.replace("main", "from-user"), encoding="utf-8")
+
+    project = tmp_path / "proj"
+    project.mkdir()
+    (project / "agentdeck.yaml").write_text(
+        MINIMAL.replace("main", "from-project"), encoding="utf-8"
+    )
+
+    assert loader.discover(project) == project / "agentdeck.yaml"
+    assert loader.load(start=project).specs()[0].id == "from-project"
+
+
+def test_missing_config_explains_the_fix(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "empty"))
+    with pytest.raises(ConfigError, match="deck config init"):
+        loader.load(start=tmp_path)
+
+
+def test_invalid_yaml_names_the_file(tmp_path):
+    path = write(tmp_path, "version: 1\nagents: [oops\n")
+    with pytest.raises(ConfigError, match="invalid YAML"):
+        loader.load(path)
+
+
+def test_unknown_key_is_rejected_rather_than_ignored(tmp_path):
+    text = MINIMAL + "  \nnotakey: true\n"
+    with pytest.raises(ConfigError, match="notakey"):
+        loader.load(write(tmp_path, text))
+
+
+def test_duplicate_ids_rejected():
+    with pytest.raises(ValueError, match="duplicate agent id"):
+        DeckFile.from_mapping(
+            {
+                "version": 1,
+                "deck": {"pattern": "fanout"},
+                "agents": [
+                    {"id": "a", "model": "m"},
+                    {"id": "a", "model": "m"},
+                ],
+            }
+        )
+
+
+def test_single_pattern_refuses_multiple_agents():
+    with pytest.raises(ValueError, match="use pattern 'fanout'"):
+        DeckFile.from_mapping(
+            {
+                "version": 1,
+                "agents": [{"id": "a", "model": "m"}, {"id": "b", "model": "m"}],
+            }
+        )
+
+
+def test_fanout_needs_two_agents():
+    with pytest.raises(ValueError, match="at least 2 agents"):
+        DeckFile.from_mapping(
+            {"version": 1, "deck": {"pattern": "fanout"}, "agents": [{"id": "a", "model": "m"}]}
+        )
+
+
+def test_judge_must_name_a_real_agent():
+    with pytest.raises(ValueError, match="is not one of"):
+        DeckFile.from_mapping(
+            {
+                "version": 1,
+                "deck": {"pattern": "judge", "judge": "nobody"},
+                "agents": [{"id": "a", "model": "m"}, {"id": "b", "model": "m"}],
+            }
+        )
+
+
+def test_future_schema_version_is_refused():
+    with pytest.raises(ValueError, match="not supported"):
+        DeckFile.from_mapping({"version": 99, "agents": [{"id": "a", "model": "m"}]})
+
+
+def test_init_writes_a_loadable_template(tmp_path):
+    path = loader.init(tmp_path / "agents.yaml")
+    assert loader.load(path).specs()
+
+    with pytest.raises(ConfigError, match="already exists"):
+        loader.init(path)
+    assert loader.init(path, force=True) == path
+
+
+def test_shipped_examples_are_valid():
+    from pathlib import Path
+
+    examples = Path(__file__).resolve().parent.parent / "examples"
+    found = sorted(examples.glob("*.yaml"))
+    assert found, "examples/ should not be empty"
+    for path in found:
+        loader.load(path)

@@ -1,0 +1,6 @@
+"""Support ``python -m agentdeck``."""
+
+from agentdeck.cli import main
+
+if __name__ == "__main__":
+    raise SystemExit(main())

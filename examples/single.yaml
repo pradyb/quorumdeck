@@ -1,0 +1,16 @@
+# One agent. The ordinary chat case.
+version: 1
+
+deck:
+  pattern: single
+  title: Solo
+
+defaults:
+  temperature: 0.7
+  timeout_s: 120
+
+agents:
+  - id: main
+    name: Main
+    model: anthropic/claude-opus-5
+    system_prompt: You are a concise, technically precise assistant.
