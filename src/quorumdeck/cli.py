@@ -11,6 +11,7 @@ import asyncio
 import getpass
 import logging
 import os
+import shlex
 import sys
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -84,6 +85,12 @@ def build_parser() -> argparse.ArgumentParser:
     sessions_cmd = sub.add_parser("sessions", help="inspect saved sessions")
     sessions_cmd.add_argument("action", choices=["list"])
 
+    serve_cmd = sub.add_parser(
+        "serve", help="serve the TUI in a browser (needs the `web` extra)"
+    )
+    serve_cmd.add_argument("--host", default="localhost")
+    serve_cmd.add_argument("--port", type=int, default=8000)
+
     return parser
 
 
@@ -113,6 +120,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return _cmd_export(args)
             case "sessions":
                 return _cmd_sessions(args)
+            case "serve":
+                return _cmd_serve(args)
             case _:  # pragma: no cover - argparse rejects anything else
                 parser.print_help()
                 return 2
@@ -358,6 +367,33 @@ def _cmd_sessions(args: argparse.Namespace) -> int:
                     f"  {path.name:<28} {stamp}  {len(session.agent_ids)} agent(s)  "
                     f"{session.usage.total_tokens} tok  {format_usd(session.usage.cost_usd)}"
                 )
+    return 0
+
+
+def _cmd_serve(args: argparse.Namespace) -> int:
+    try:
+        from textual_serve.server import Server
+    except ImportError:
+        print(
+            "error: `deck serve` needs the optional `web` extra -- install with "
+            '`pip install "quorumdeck[web]"` (or `uv tool install "quorumdeck[web]"`)',
+            file=sys.stderr,
+        )
+        return 1
+
+    # Re-invoked once per browser tab as a fresh subprocess, so it needs the
+    # same --config/--resume the person running `deck serve` gave, not a bare
+    # `quorumdeck` that would fall back to config discovery in the server's
+    # own working directory. Several tabs pointed at the same --resume file
+    # each get their own independent copy of that starting history -- they do
+    # not share a live session with each other.
+    command = ["quorumdeck"]
+    if args.config:
+        command.append(f"--config={args.config}")
+    if args.resume:
+        command.append(f"--resume={args.resume}")
+
+    Server(shlex.join(command), host=args.host, port=args.port).serve()
     return 0
 
 

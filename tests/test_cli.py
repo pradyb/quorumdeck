@@ -70,7 +70,8 @@ def test_litellm_is_not_imported_just_to_show_help():
             sys.executable,
             "-c",
             "import quorumdeck.cli, sys; "
-            "print('litellm' in sys.modules or 'textual' in sys.modules)",
+            "print('litellm' in sys.modules or 'textual' in sys.modules "
+            "or 'textual_serve' in sys.modules)",
         ],
         capture_output=True,
         text=True,
@@ -415,3 +416,69 @@ def test_run_refuses_once_the_deck_budget_is_spent(tmp_path, monkeypatch, capsys
 
     assert main(["--config", str(config_path), "--resume", str(saved), "run", "hi"]) == 1
     assert "budget" in capsys.readouterr().err
+
+
+def test_serve_explains_the_missing_extra_when_textual_serve_is_not_installed(
+    monkeypatch, capsys
+):
+    import builtins
+
+    real_import = builtins.__import__
+
+    def blocked(name, *args, **kwargs):
+        if name == "textual_serve.server" or name.startswith("textual_serve"):
+            raise ImportError("No module named 'textual_serve'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", blocked)
+
+    assert main(["serve"]) == 1
+
+    err = capsys.readouterr().err
+    assert "needs the optional `web` extra" in err
+    assert "quorumdeck[web]" in err
+
+
+def test_serve_launches_a_server_with_the_active_config_and_resume(monkeypatch, tmp_path):
+    calls = {}
+
+    class FakeServer:
+        def __init__(self, command, host, port):
+            calls["command"] = command
+            calls["host"] = host
+            calls["port"] = port
+
+        def serve(self):
+            calls["served"] = True
+
+    fake_module = type("module", (), {"Server": FakeServer})
+    monkeypatch.setitem(__import__("sys").modules, "textual_serve.server", fake_module)
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "textual_serve",
+        type("module", (), {"server": fake_module}),
+    )
+
+    config_path = tmp_path / "quorumdeck.yaml"
+    resume_path = tmp_path / "s.json"
+
+    assert (
+        main(
+            [
+                "--config",
+                str(config_path),
+                "--resume",
+                str(resume_path),
+                "serve",
+                "--port",
+                "9000",
+            ]
+        )
+        == 0
+    )
+
+    assert calls["served"] is True
+    assert calls["port"] == 9000
+    assert str(config_path) in calls["command"]
+    assert str(resume_path) in calls["command"]
+    assert calls["command"].startswith("quorumdeck ")

@@ -282,6 +282,22 @@ analysis without writing a parser first.
 
 ---
 
+## Running in a browser
+
+```bash
+pip install "quorumdeck[web]"
+deck serve                # or: deck --config X --resume Y serve --port 9000
+```
+
+An opt-in extra: it needs [`textual-serve`](https://github.com/Textualize/textual-serve),
+which pulls in `aiohttp`, so it stays out of the default install. Every
+browser tab that connects launches its own fresh `quorumdeck` subprocess with
+whatever `--config`/`--resume` `deck serve` itself was given -- several tabs
+pointed at the same `--resume` file each get their own independent copy of
+that starting history, not a shared live session.
+
+---
+
 ## Architecture
 
 The layering is the load-bearing decision, not an aesthetic one:

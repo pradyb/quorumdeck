@@ -81,7 +81,13 @@ runtime. All five now do.
 
 - [ ] A second `Provider` implementation, mostly to prove the port is real.
 - [ ] Per-agent temperature sweeps (same model, different settings, side by side).
-- [ ] Web output via `textual serve`.
+- [x] `deck serve` -- a browser tab instead of a terminal, via the
+      `textual-serve` package directly rather than the `textual` CLI's own
+      `serve` subcommand, which lives in the heavier `textual-dev` devtools
+      bundle (console, live CSS reload) that a quorumdeck user has no other
+      reason to install. Opt-in (`pip install quorumdeck[web]`) since
+      `textual-serve` pulls in `aiohttp`, a real dependency nobody should pay
+      for by default.
 - [ ] `pipeline` steps that cross workers: right now a worker only ever sees
       its own steps, so a plan where step 2 (on worker B) genuinely needs step
       1's output (from worker A) has no way to get it. Fine for

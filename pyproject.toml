@@ -28,6 +28,11 @@ dependencies = [
     "keyring>=25.0",
 ]
 
+[project.optional-dependencies]
+# `deck serve` only. Pulls in aiohttp, which is a real dependency, so it is
+# opt-in rather than bundled with everyone's install.
+web = ["textual-serve>=1.1"]
+
 [project.urls]
 Homepage = "https://github.com/pradyb/quorumdeck"
 Repository = "https://github.com/pradyb/quorumdeck"
