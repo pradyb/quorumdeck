@@ -1,6 +1,14 @@
 # quorumdeck
 
+*/ˈkwɔːr.əm.dɛk/ — KWOR-um-deck*
+
 **A terminal console for running several AI agents — on different models, from different providers — side by side in one session.**
+
+A *quorum* is the minimum number of members whose presence makes a group's
+decision count — the point of convening several models is that their combined
+answer, not any one of theirs, is what you act on. *Deck* is both the console
+sense (a control deck) and the panel layout: several agents dealt out across
+the screen like a hand of cards.
 
 Most terminal LLM clients give you one model at a time and a dropdown to switch.
 `quorumdeck` starts from the opposite premise: the interesting thing is what happens
