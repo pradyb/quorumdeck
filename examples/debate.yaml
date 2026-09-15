@@ -1,4 +1,14 @@
-# Schema-valid today; the debate runtime lands in 0.2 (see ROADMAP.md).
+# Author answers, critic objects, author revises -- for `rounds` rounds.
+#
+# NOTE: schema-valid today, but the debate runtime lands in 0.2. Running it now
+# is rejected with a pointer to ROADMAP.md rather than quietly downgraded.
+#
+# On OpenRouter's free tier, so it costs nothing once the runtime exists:
+#
+#   deck keys set openrouter        # from https://openrouter.ai/keys
+#
+# Free model ids rotate; swap in any live one from
+# https://openrouter.ai/models?q=free if one of these is gone.
 version: 1
 
 deck:
@@ -6,15 +16,18 @@ deck:
   rounds: 2
   title: Debate
 
+defaults:
+  timeout_s: 180
+
 agents:
   - id: author
     name: Author
-    model: anthropic/claude-opus-5
+    model: "openrouter/google/gemma-4-31b-it:free"
     system_prompt: Answer directly. When critiqued, revise rather than defend.
     role: peer
 
   - id: critic
     name: Critic
-    model: openai/gpt-5
+    model: "openrouter/nvidia/nemotron-3-super-120b-a12b:free"
     system_prompt: Find the strongest concrete objection. No praise.
     role: critic

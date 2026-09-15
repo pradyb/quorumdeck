@@ -193,12 +193,19 @@ async def _stream_to_stdout(config: DeckFile, prompt: str) -> int:
 
 def _cmd_agents(args: argparse.Namespace) -> int:
     config = _load(args)
+    specs = config.specs()
     print(f"pattern: {config.deck.pattern}")
-    for spec in config.specs():
+
+    # Sized to the deck: an OpenRouter id is roughly twice as long as an
+    # Anthropic one, and a fixed width turns the table into a staircase.
+    id_width = max((len(s.id) for s in specs), default=0)
+    model_width = max((len(s.model) for s in specs), default=0)
+
+    for spec in specs:
         provider = secrets.provider_of(spec.model)
         key = secrets.source(provider)
         mark = "ok" if key != "missing" or provider in secrets.NO_KEY_NEEDED else "no key"
-        print(f"  {spec.id:<12} {spec.model:<40} {spec.role:<8} {mark}")
+        print(f"  {spec.id:<{id_width}}  {spec.model:<{model_width}}  {spec.role:<7} {mark}")
     return 0
 
 

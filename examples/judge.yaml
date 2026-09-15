@@ -1,5 +1,16 @@
-# Two agents answer in parallel, then the referee is shown both answers --
-# numbered, not named, so it ranks the answers rather than the brands.
+# The judge pattern on OpenRouter's free tier: one key, no card, no cost.
+#
+# Two models answer in parallel, then the referee is shown both answers --
+# numbered, not named, so it ranks the answers rather than the brands. The three
+# come from three different labs on purpose; a referee from the same family as a
+# candidate is not a neutral referee.
+#
+#   deck keys set openrouter        # from https://openrouter.ai/keys
+#   deck --config examples/judge.yaml
+#
+# Free model ids rotate. If one 404s, pick a live replacement from
+# https://openrouter.ai/models?q=free -- the pattern does not care which.
+# The free tier is also rate limited, and this deck spends three calls per turn.
 version: 1
 
 deck:
@@ -7,17 +18,20 @@ deck:
   judge: referee
   title: Consensus
 
+defaults:
+  timeout_s: 180
+
 agents:
   - id: a
-    name: Answer A
-    model: anthropic/claude-opus-5
+    name: Gemma
+    model: "openrouter/google/gemma-4-31b-it:free"
 
   - id: b
-    name: Answer B
-    model: openai/gpt-5
+    name: Nemotron
+    model: "openrouter/nvidia/nemotron-3-super-120b-a12b:free"
 
   - id: referee
     name: Referee
-    model: anthropic/claude-opus-5
+    model: "openrouter/thinkingmachines/inkling:free"
     system_prompt: Compare the candidate answers and merge the best of each.
     role: judge

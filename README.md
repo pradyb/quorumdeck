@@ -121,6 +121,21 @@ Use the `ollama_chat/` prefix rather than `ollama/`: it routes to Ollama's
 agents are all local skips LiteLLM's remote price list too, so it stays offline
 end to end.
 
+### Free, but not local
+
+[`examples/judge.yaml`](examples/judge.yaml) runs the judge pattern entirely on
+OpenRouter's free tier — three models from three different labs, one key, no
+card:
+
+```bash
+deck keys set openrouter        # from https://openrouter.ai/keys
+deck --config examples/judge.yaml
+```
+
+Free model ids rotate, so if one 404s pick a live replacement from
+[openrouter.ai/models?q=free](https://openrouter.ai/models?q=free); no pattern
+depends on a particular model.
+
 ### Orchestration patterns
 
 | Pattern | What one prompt means | Status |
