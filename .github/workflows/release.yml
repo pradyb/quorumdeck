@@ -10,6 +10,10 @@ permissions: {}
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      # Needed to check out a private repo; the workflow-level default above
+      # grants nothing, so each job opts in to exactly what it uses.
+      contents: read
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.1.0
