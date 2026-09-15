@@ -1,11 +1,14 @@
 # Author answers, critic objects, author revises -- for `rounds` rounds.
 #
-# NOTE: schema-valid today, but the debate runtime lands in 0.2. Running it now
-# is rejected with a pointer to ROADMAP.md rather than quietly downgraded.
+# `rounds: 2` means: draft, critique, revision, critique, revision -- five
+# turns, ending on the author's final revision. Each side sees only its own
+# thread plus what it is deliberately shown: the critic sees the latest
+# draft, the author sees the latest critique, never each other's full history.
 #
-# On OpenRouter's free tier, so it costs nothing once the runtime exists:
+# On OpenRouter's free tier, so it costs nothing to run:
 #
 #   deck keys set openrouter        # from https://openrouter.ai/keys
+#   deck --config examples/debate.yaml
 #
 # Free model ids rotate; swap in any live one from
 # https://openrouter.ai/models?q=free if one of these is gone.

@@ -157,3 +157,39 @@ def test_keys_set_rejects_an_unknown_provider_before_asking_for_the_key(monkeypa
     err = capsys.readouterr().err
     assert "unknown provider 'openrouterr'" in err
     assert "did you mean 'openrouter'" in err
+
+
+def test_deck_run_prints_every_round_of_a_debate(tmp_path, monkeypatch, capsys):
+    from quorumdeck.core.events import Usage
+    from quorumdeck.providers.base import Chunk, Completed
+
+    path = tmp_path / "quorumdeck.yaml"
+    path.write_text(
+        "version: 1\n"
+        "deck: {pattern: debate, rounds: 1}\n"
+        "agents:\n"
+        "  - {id: author, name: Author, model: openai/gpt-5}\n"
+        "  - {id: critic, name: Critic, model: anthropic/claude-opus-5, role: critic}\n",
+        encoding="utf-8",
+    )
+
+    class Sequenced:
+        name = "sequenced"
+
+        def __init__(self):
+            self._replies = iter(["draft", "critique", "revision"])
+
+        async def stream(self, request):
+            yield Chunk(next(self._replies))
+            yield Completed(usage=Usage(), finish_reason="stop")
+
+    monkeypatch.setattr("quorumdeck.cli.default_provider", Sequenced)
+
+    assert main(["--config", str(path), "run", "hi"]) == 0
+
+    out = capsys.readouterr().out
+    # Sequential pattern: rounds print in the order they were spoken, not
+    # held and re-sorted the way fanout and judge are.
+    assert out.index("draft") < out.index("critique") < out.index("revision")
+    assert out.count("── Author") == 2  # the draft, and the revision
+    assert out.count("── Critic") == 1

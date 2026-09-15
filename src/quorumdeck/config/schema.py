@@ -118,6 +118,14 @@ class DeckFile(BaseModel):
             if count < 2:
                 raise ValueError("pattern 'judge' needs a judge plus at least one answerer")
 
+        if pattern is Pattern.DEBATE:
+            critics = [a.id for a in self.agents if a.role == "critic"]
+            if count != 2 or len(critics) != 1:
+                raise ValueError(
+                    "pattern 'debate' takes exactly one author and one agent with "
+                    f"role 'critic' (got {count} agents, {len(critics)} critic(s))"
+                )
+
         if pattern is Pattern.PIPELINE and not any(a.role == "planner" for a in self.agents):
             raise ValueError("pattern 'pipeline' needs one agent with role 'planner'")
 

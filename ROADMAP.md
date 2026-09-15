@@ -4,14 +4,19 @@ Ordered by what unblocks the most people, not by what is most fun.
 
 ## 0.2 — the remaining patterns
 
-The config schema already validates all five patterns; two still need runtimes.
-Each is a composition of what `0.1` proved, and each belongs in
+The config schema already validates all five patterns; one still needs a
+runtime. Each is a composition of what `0.1` proved, and each belongs in
 `core/orchestrator.py` behind the same event stream.
 
-- [ ] **`debate`** — `author` answers, `critic` critiques, `author` revises, for
-      `deck.rounds`. `Session.add_user_to`, added for `judge`, is the mechanism
-      for showing one agent a peer's text; what is still open is how a multi-round
-      exchange reads in a panel built for one reply per turn.
+- [x] **`debate`** — `author` answers, `critic` critiques, `author` revises, for
+      `deck.rounds`. Shipped: the TUI panel architecture already generalized to
+      several replies per agent per turn with no changes needed (`end_assistant`
+      already resets the panel's stream, so a second `RunFinished` for the same
+      agent just mounts a second bubble). The one real gap was that
+      `Session.add_user_to` injects text invisibly, so a new `PromptInjected`
+      event renders the injected critique/revision prompt the same way the
+      human's own prompt renders -- added retroactively to `judge` too, which
+      had the identical gap.
 - [x] **`judge`** — fan out, then feed the candidate answers to `deck.judge` as a
       single synthesized prompt. Effectively `fanout` followed by `single`.
       Shipped: candidates are numbered rather than named, so the judge ranks

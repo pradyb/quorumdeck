@@ -69,4 +69,21 @@ class RunFailed:
     error: str
 
 
-Event: TypeAlias = RunStarted | TextDelta | ReasoningDelta | RunFinished | RunFailed
+@dataclass(frozen=True, slots=True)
+class PromptInjected:
+    """One agent was shown something its peers were not -- a judge given the
+    candidate answers, a debate's author given the critic's objection.
+
+    Carries no cost and updates no session bookkeeping on its own (the reply
+    it provokes still arrives as an ordinary RunFinished). It exists only so a
+    UI can render what an agent was just asked, rather than showing a reply
+    appear with no visible cause.
+    """
+
+    agent_id: str
+    text: str
+
+
+Event: TypeAlias = (
+    RunStarted | TextDelta | ReasoningDelta | RunFinished | RunFailed | PromptInjected
+)

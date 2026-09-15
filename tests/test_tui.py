@@ -135,3 +135,68 @@ async def test_the_deck_opens_in_tokyo_night(app):
         await pilot.pause()
         assert pilot.app.theme == "tokyo-night"
         assert pilot.app.current_theme.name == "tokyo-night"
+
+
+DEBATE = {
+    "version": 1,
+    "deck": {"pattern": "debate", "rounds": 1},
+    "agents": [
+        {"id": "author", "name": "Author", "model": "fake/a"},
+        {"id": "critic", "name": "Critic", "model": "fake/c", "role": "critic"},
+    ],
+}
+
+
+class _SequencedProvider:
+    """Returns a different scripted reply on each successive call, in order.
+
+    Debate calls the same shared provider three times in a fixed sequence
+    (draft, critique, revision); FakeProvider's fixed chunks cannot tell those
+    calls apart.
+    """
+
+    name = "sequenced"
+
+    def __init__(self, replies):
+        self._replies = list(replies)
+        self._call = 0
+
+    async def stream(self, request):
+        from quorumdeck.providers.base import Chunk, Completed
+
+        text = self._replies[self._call]
+        self._call += 1
+        yield Chunk(text)
+        yield Completed(usage=Usage(1, 1, 0.0), finish_reason="stop")
+
+
+async def test_a_debate_deck_shows_the_critique_and_revision():
+    app = QuorumDeckApp(
+        DeckFile.from_mapping(DEBATE), _SequencedProvider(["draft", "critique", "revision"])
+    )
+    async with app.run_test() as pilot:
+        await pilot.click("#prompt")
+        await pilot.press(*"hi")
+        await pilot.press("enter")
+        await pilot.app.workers.wait_for_complete()
+        await pilot.pause()
+
+        # Two author replies -- the draft, then the revision -- land in the
+        # author's own thread; the critic's single critique in its own.
+        author_replies = [m.content for m in pilot.app.session.thread("author")][1::2]
+        assert author_replies == ["draft", "revision"]
+        assert pilot.app.session.thread("critic")[-1].content == "critique"
+
+        # PromptInjected renders exactly like the human's own prompt: a
+        # "user-turn" bubble in the panel it was shown to, not just data
+        # sitting invisibly in the session.
+        author_panel = pilot.app.query_one("#panel-author", AgentPanel)
+        critic_panel = pilot.app.query_one("#panel-critic", AgentPanel)
+        author_bubbles = list(author_panel.query(".user-turn"))
+        critic_bubbles = list(critic_panel.query(".user-turn"))
+
+        # One bubble for the human's own prompt, one for the injected round text.
+        assert len(author_bubbles) == 2
+        assert len(critic_bubbles) == 2
+        assert "Critique" in str(author_bubbles[-1].content)
+        assert "Candidate answer" in str(critic_bubbles[-1].content)

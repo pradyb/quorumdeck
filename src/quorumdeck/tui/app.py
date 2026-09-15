@@ -19,6 +19,7 @@ from quorumdeck.config.loader import sessions_dir
 from quorumdeck.config.schema import DeckFile
 from quorumdeck.core.agent import Agent
 from quorumdeck.core.events import (
+    PromptInjected,
     RunFailed,
     RunFinished,
     RunStarted,
@@ -103,6 +104,12 @@ class QuorumDeckApp(App[None]):
         try:
             async for event in self.orchestrator.run_turn(self.session, prompt):
                 match event:
+                    case PromptInjected(agent_id=agent_id, text=text):
+                        # A judge shown candidate answers, a debate's author
+                        # shown the critic's objection: rendered the same way
+                        # as the human's own prompt, since from the agent's
+                        # side it is indistinguishable from one.
+                        await self.panel(agent_id).add_user(text)
                     case RunStarted(agent_id=agent_id):
                         self.panel(agent_id).begin_assistant()
                     case TextDelta(agent_id=agent_id, text=text):

@@ -125,6 +125,46 @@ def test_judge_must_name_a_real_agent():
         )
 
 
+def test_debate_needs_exactly_one_critic():
+    with pytest.raises(ValueError, match="exactly one author and one agent with role 'critic'"):
+        DeckFile.from_mapping(
+            {
+                "version": 1,
+                "deck": {"pattern": "debate"},
+                "agents": [{"id": "a", "model": "m"}, {"id": "b", "model": "m"}],
+            }
+        )
+
+
+def test_debate_rejects_a_third_wheel():
+    with pytest.raises(ValueError, match="exactly one author and one agent with role 'critic'"):
+        DeckFile.from_mapping(
+            {
+                "version": 1,
+                "deck": {"pattern": "debate"},
+                "agents": [
+                    {"id": "a", "model": "m"},
+                    {"id": "b", "model": "m", "role": "critic"},
+                    {"id": "c", "model": "m"},
+                ],
+            }
+        )
+
+
+def test_debate_with_one_author_and_one_critic_is_valid():
+    deck = DeckFile.from_mapping(
+        {
+            "version": 1,
+            "deck": {"pattern": "debate"},
+            "agents": [
+                {"id": "author", "model": "m"},
+                {"id": "critic", "model": "m", "role": "critic"},
+            ],
+        }
+    )
+    assert deck.deck.pattern.value == "debate"
+
+
 def test_future_schema_version_is_refused():
     with pytest.raises(ValueError, match="not supported"):
         DeckFile.from_mapping({"version": 99, "agents": [{"id": "a", "model": "m"}]})
@@ -154,7 +194,10 @@ def test_with_pattern_keeps_the_agents_and_switches_the_pattern():
         {
             "version": 1,
             "deck": {"pattern": "fanout"},
-            "agents": [{"id": "a", "model": "x/y"}, {"id": "b", "model": "x/z"}],
+            "agents": [
+                {"id": "a", "model": "x/y"},
+                {"id": "b", "model": "x/z", "role": "critic"},
+            ],
         }
     )
 

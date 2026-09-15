@@ -4,8 +4,16 @@ import asyncio
 
 import pytest
 
-from quorumdeck.core.events import RunFailed, RunFinished, RunStarted, TextDelta
+from quorumdeck.core.events import (
+    PromptInjected,
+    RunFailed,
+    RunFinished,
+    RunStarted,
+    TextDelta,
+    Usage,
+)
 from quorumdeck.core.orchestrator import Orchestrator, Pattern, merge
+from quorumdeck.providers.base import Chunk, Completed, ProviderError
 from tests.conftest import FakeProvider
 
 
@@ -74,7 +82,7 @@ async def test_merge_preserves_per_stream_order_while_interleaving():
     assert events[0].agent_id == "fast"
 
 
-@pytest.mark.parametrize("pattern", [Pattern.DEBATE, Pattern.PIPELINE])
+@pytest.mark.parametrize("pattern", [Pattern.PIPELINE])
 async def test_unimplemented_patterns_fail_loudly(make_agent, pattern):
     orch = Orchestrator([make_agent("a"), make_agent("b")], pattern=pattern)
     session = orch.new_session()
@@ -176,3 +184,165 @@ def test_a_judge_deck_must_name_a_judge_that_exists(make_agent):
 
     with pytest.raises(ValueError, match="needs judge_id"):
         Orchestrator([make_agent("a"), make_agent("b")], pattern=Pattern.JUDGE)
+
+
+class SequencedProvider:
+    """Returns a different scripted reply on each successive call, in order.
+
+    FakeProvider always replays the same chunks, which cannot stand in for a
+    debate's draft-then-revision -- the orchestrator needs each call's text to
+    build the *next* prompt, so the test provider has to actually change.
+    """
+
+    name = "sequenced"
+
+    def __init__(self, replies, *, fail_at: int | None = None):
+        self._replies = list(replies)
+        self._fail_at = fail_at
+        self._call = 0
+        self.requests: list = []
+
+    async def stream(self, request):
+        self.requests.append(request)
+        call = self._call
+        self._call += 1
+        if call == self._fail_at:
+            raise ProviderError("boom")
+        yield Chunk(self._replies[call])
+        yield Completed(usage=Usage(input_tokens=1, output_tokens=1), finish_reason="stop")
+
+
+def debate_deck(make_agent, *, rounds=1, author=None, critic=None):
+    author_agent = make_agent("author", author or SequencedProvider(["draft", "revision"]))
+    critic_agent = make_agent(
+        "critic", critic or SequencedProvider(["critique"]), role="critic"
+    )
+    orch = Orchestrator([author_agent, critic_agent], pattern=Pattern.DEBATE, rounds=rounds)
+    return orch, author_agent, critic_agent
+
+
+async def test_debate_runs_draft_critique_revision_for_one_round(make_agent):
+    orch, _, _ = debate_deck(make_agent, rounds=1)
+    session = orch.new_session()
+
+    events = await collect(orch.run_turn(session, "hi"))
+    finished = [e for e in events if isinstance(e, RunFinished)]
+
+    assert [(e.agent_id, e.text) for e in finished] == [
+        ("author", "draft"),
+        ("critic", "critique"),
+        ("author", "revision"),
+    ]
+
+
+async def test_debate_runs_two_rounds_by_default(make_agent):
+    author = SequencedProvider(["d0", "d1", "d2"])
+    critic = SequencedProvider(["c1", "c2"])
+    orch, _, _ = debate_deck(make_agent, rounds=2, author=author, critic=critic)
+    session = orch.new_session()
+
+    events = await collect(orch.run_turn(session, "hi"))
+    finished = [e for e in events if isinstance(e, RunFinished)]
+
+    assert [(e.agent_id, e.text) for e in finished] == [
+        ("author", "d0"),
+        ("critic", "c1"),
+        ("author", "d1"),
+        ("critic", "c2"),
+        ("author", "d2"),
+    ]
+
+
+async def test_debate_injects_what_each_side_could_not_otherwise_see(make_agent):
+    orch, _, _ = debate_deck(make_agent, rounds=1)
+    session = orch.new_session()
+
+    events = await collect(orch.run_turn(session, "hi"))
+    injected = [e for e in events if isinstance(e, PromptInjected)]
+
+    assert [e.agent_id for e in injected] == ["critic", "author"]
+    assert "draft" in injected[0].text and "Candidate answer" in injected[0].text
+    assert "critique" in injected[1].text and "Critique" in injected[1].text
+
+
+async def test_debate_keeps_each_sides_thread_isolated(make_agent):
+    orch, _, _ = debate_deck(make_agent, rounds=1)
+    session = orch.new_session()
+
+    await collect(orch.run_turn(session, "hi"))
+
+    author_thread = [m.content for m in session.thread("author")]
+    critic_thread = [m.content for m in session.thread("critic")]
+
+    assert author_thread == ["hi", "draft", injected_revision_prompt(), "revision"]
+    assert critic_thread == ["hi", injected_critique_prompt(), "critique"]
+
+
+def injected_critique_prompt() -> str:
+    from quorumdeck.core.orchestrator import _critique_request
+
+    return _critique_request("draft")
+
+
+def injected_revision_prompt() -> str:
+    from quorumdeck.core.orchestrator import _revision_request
+
+    return _revision_request("critique")
+
+
+async def test_debate_stops_if_the_author_never_answers(make_agent):
+    orch, _, _ = debate_deck(make_agent, author=SequencedProvider([], fail_at=0))
+    session = orch.new_session()
+
+    events = await collect(orch.run_turn(session, "hi"))
+
+    assert [e.agent_id for e in events if isinstance(e, RunFailed)] == ["author"]
+    assert not any(isinstance(e, RunFinished) for e in events)
+    assert not any(isinstance(e, PromptInjected) for e in events)  # never got to the critic
+
+
+async def test_debate_stops_if_the_critic_fails_mid_round(make_agent):
+    orch, _, _ = debate_deck(make_agent, critic=SequencedProvider([], fail_at=0))
+    session = orch.new_session()
+
+    events = await collect(orch.run_turn(session, "hi"))
+
+    finished = [e for e in events if isinstance(e, RunFinished)]
+    assert [(e.agent_id, e.text) for e in finished] == [("author", "draft")]
+    assert [e.agent_id for e in events if isinstance(e, RunFailed)] == ["critic"]
+
+
+async def test_debate_stops_if_a_revision_fails(make_agent):
+    author = SequencedProvider(["draft"], fail_at=1)  # answers once, fails on the revision
+    orch, _, _ = debate_deck(make_agent, author=author)
+    session = orch.new_session()
+
+    events = await collect(orch.run_turn(session, "hi"))
+
+    finished = [e for e in events if isinstance(e, RunFinished)]
+    assert [(e.agent_id, e.text) for e in finished] == [
+        ("author", "draft"),
+        ("critic", "critique"),
+    ]
+    assert [e.agent_id for e in events if isinstance(e, RunFailed)] == ["author"]
+
+
+@pytest.mark.parametrize(
+    "agents_kwargs",
+    [
+        [{"agent_id": "a"}, {"agent_id": "b"}],  # no critic at all
+        [
+            {"agent_id": "a", "role": "critic"},
+            {"agent_id": "b", "role": "critic"},
+        ],  # two critics, no author
+        [
+            {"agent_id": "a"},
+            {"agent_id": "b", "role": "critic"},
+            {"agent_id": "c"},
+        ],  # three agents
+    ],
+)
+def test_a_debate_deck_needs_exactly_one_author_and_one_critic(make_agent, agents_kwargs):
+    agents = [make_agent(**kwargs) for kwargs in agents_kwargs]
+    with pytest.raises(ValueError, match="exactly one author and one agent with role 'critic'"):
+        Orchestrator(agents, pattern=Pattern.DEBATE)

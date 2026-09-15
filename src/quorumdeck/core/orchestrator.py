@@ -13,7 +13,7 @@ from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
 from enum import StrEnum
 
 from quorumdeck.core.agent import Agent
-from quorumdeck.core.events import Event, RunFailed, RunFinished
+from quorumdeck.core.events import Event, PromptInjected, RunFailed, RunFinished
 from quorumdeck.core.session import Session
 
 
@@ -88,6 +88,15 @@ class Orchestrator:
                     f"judge_id '{judge_id}' is not in the deck: {', '.join(self.agent_ids)}"
                 )
 
+        if pattern is Pattern.DEBATE:
+            critics = [a for a in self.agents if a.spec.role == "critic"]
+            if len(self.agents) != 2 or len(critics) != 1:
+                raise ValueError(
+                    "pattern 'debate' needs exactly one author and one agent with "
+                    f"role 'critic', got {len(self.agents)} agent(s) and "
+                    f"{len(critics)} critic(s)"
+                )
+
     @property
     def agent_ids(self) -> list[str]:
         return [a.id for a in self.agents]
@@ -111,7 +120,9 @@ class Orchestrator:
                 stream = self._run_fanout(session)
             case Pattern.JUDGE:
                 stream = self._run_judge(session)
-            case Pattern.DEBATE | Pattern.PIPELINE:
+            case Pattern.DEBATE:
+                stream = self._run_debate(session)
+            case Pattern.PIPELINE:
                 raise NotImplementedError(
                     f"the '{self.pattern}' pattern is defined in the config schema "
                     "but not implemented yet -- see ROADMAP.md"
@@ -163,9 +174,57 @@ class Orchestrator:
             )
             return
 
-        session.add_user_to(judge.id, _judge_prompt(ordered))
+        judge_prompt = _judge_prompt(ordered)
+        session.add_user_to(judge.id, judge_prompt)
+        yield PromptInjected(agent_id=judge.id, text=judge_prompt)
         async for event in judge.run(session.thread(judge.id)):
             yield event
+
+    async def _run_debate(self, session: Session) -> AsyncIterator[Event]:
+        """author drafts, critic objects, author revises -- for ``self.rounds`` rounds.
+
+        Each side sees only its own thread plus what this pattern deliberately
+        shows it: the critic is shown the author's latest draft, the author is
+        shown the critic's latest objection. Neither ever sees the other's full
+        history -- the same isolation ``fanout`` and ``judge`` rely on.
+
+        ``rounds`` counts critique/revision pairs *after* the author's first,
+        unprompted answer. ``rounds: 2`` is draft, critique, revision, critique,
+        revision -- five turns, ending on the author's final revision.
+        """
+        critic = next(a for a in self.agents if a.spec.role == "critic")
+        author = next(a for a in self.agents if a.id != critic.id)
+
+        draft = None
+        async for event in author.run(session.thread(author.id)):
+            if isinstance(event, RunFinished):
+                draft = event.text
+            yield event
+        if draft is None:
+            return  # the author's own RunFailed already explains why
+
+        for _ in range(self.rounds):
+            critique_prompt = _critique_request(draft)
+            session.add_user_to(critic.id, critique_prompt)
+            yield PromptInjected(agent_id=critic.id, text=critique_prompt)
+            critique = None
+            async for event in critic.run(session.thread(critic.id)):
+                if isinstance(event, RunFinished):
+                    critique = event.text
+                yield event
+            if critique is None:
+                return
+
+            revision_prompt = _revision_request(critique)
+            session.add_user_to(author.id, revision_prompt)
+            yield PromptInjected(agent_id=author.id, text=revision_prompt)
+            draft = None
+            async for event in author.run(session.thread(author.id)):
+                if isinstance(event, RunFinished):
+                    draft = event.text
+                yield event
+            if draft is None:
+                return
 
 
 def _judge_prompt(answers: Sequence[str]) -> str:
@@ -185,4 +244,24 @@ def _judge_prompt(answers: Sequence[str]) -> str:
         "gets right. Where they disagree, say which reading you took and why. Do "
         "not reproduce a candidate verbatim unless it is genuinely the best "
         f"available answer.\n\n{blocks}"
+    )
+
+
+def _critique_request(draft: str) -> str:
+    """Ask the critic for the strongest concrete objection to a draft."""
+    return (
+        "Here is a candidate answer to the question above. Find the strongest "
+        "concrete objection to it -- a factual error, a missing case, an "
+        "unjustified claim. Do not praise it, and do not soften the objection "
+        f"to be polite.\n\n--- Candidate answer ---\n{draft.strip()}"
+    )
+
+
+def _revision_request(critique: str) -> str:
+    """Ask the author to revise in light of one round of critique."""
+    return (
+        "A critic raised the following objection to your last answer. Revise "
+        "your answer to address it. If the objection does not hold, say briefly "
+        f"why not, but do not simply repeat your previous answer.\n\n"
+        f"--- Critique ---\n{critique.strip()}"
     )

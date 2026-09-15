@@ -123,13 +123,14 @@ end to end.
 
 ### Free, but not local
 
-[`examples/judge.yaml`](examples/judge.yaml) runs the judge pattern entirely on
-OpenRouter's free tier — three models from three different labs, one key, no
-card:
+[`examples/judge.yaml`](examples/judge.yaml) and
+[`examples/debate.yaml`](examples/debate.yaml) run entirely on OpenRouter's
+free tier — several models from different labs, one key, no card:
 
 ```bash
 deck keys set openrouter        # from https://openrouter.ai/keys
 deck --config examples/judge.yaml
+deck --config examples/debate.yaml
 ```
 
 Or set `OPENROUTER_API_KEY` in the environment instead; it takes precedence over
@@ -145,7 +146,7 @@ depends on a particular model.
 | --- | --- | --- |
 | `single` | One agent answers. Ordinary chat. | ✅ shipped |
 | `fanout` | Every agent answers the same prompt in parallel, side by side. | ✅ shipped |
-| `debate` | One agent answers, another critiques, the first revises, for `rounds`. | 🚧 0.2 |
+| `debate` | One agent answers, another critiques, the first revises, for `rounds`. | ✅ shipped |
 | `pipeline` | A `planner` decomposes the task; `worker` agents execute the steps. | 🚧 0.2 |
 | `judge` | Agents answer in parallel, then a designated `judge` merges or scores. | ✅ shipped |
 
