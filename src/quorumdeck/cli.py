@@ -81,11 +81,16 @@ def build_parser() -> argparse.ArgumentParser:
     keys_cmd.add_argument("action", choices=["set", "list", "rm"])
     keys_cmd.add_argument("provider", nargs="?", help="e.g. anthropic, openai")
 
-    export_cmd = sub.add_parser(
-        "export", help="export a saved session to JSONL, one line per agent"
-    )
+    export_cmd = sub.add_parser("export", help="export a saved session")
     export_cmd.add_argument(
         "session", type=Path, help="a saved session file, or just its name under sessions_dir()"
+    )
+    export_cmd.add_argument(
+        "--format",
+        choices=["jsonl", "markdown"],
+        default="jsonl",
+        help="jsonl: one fine-tuning-shaped line per agent (default). "
+        "markdown: one human-readable document.",
     )
     export_cmd.add_argument("-o", "--output", type=Path, help="write here instead of stdout")
     export_cmd.add_argument(
@@ -380,12 +385,16 @@ def _cmd_export(args: argparse.Namespace) -> int:
         )
         return 1
 
-    jsonl = session.to_jsonl(agent_ids)
+    rendered = (
+        session.to_markdown(agent_ids)
+        if args.format == "markdown"
+        else session.to_jsonl(agent_ids)
+    )
     if args.output:
-        args.output.write_text(jsonl, encoding="utf-8")
+        args.output.write_text(rendered, encoding="utf-8")
         print(f"wrote {args.output}", file=sys.stderr)
     else:
-        print(jsonl, end="")
+        print(rendered, end="")
     return 0
 
 

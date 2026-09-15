@@ -8,8 +8,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from quorumdeck.core.costs import format_usd
 from quorumdeck.core.events import Usage
 from quorumdeck.core.messages import Message, Role, assistant, user
+from quorumdeck.core.tools import summarize
 
 SCHEMA_VERSION = 1
 
@@ -105,6 +107,42 @@ class Session:
         ]
         return "\n".join(lines) + ("\n" if lines else "")
 
+    def to_markdown(self, agent_ids: Sequence[str] | None = None) -> str:
+        """Every agent's own thread as one human-readable document.
+
+        Where ``to_jsonl`` is for a program to read, this is for a person --
+        a tool call renders as one line (``call → result``) rather than the
+        two separate wire messages (an assistant's ``tool_calls`` and a
+        later ``tool``-role reply) it actually took to represent it.
+        """
+        ids = list(agent_ids) if agent_ids is not None else self._agent_ids
+        stamp = self.created_at.strftime("%Y-%m-%d %H:%M UTC")
+        lines = [
+            "# quorumdeck session",
+            "",
+            f"_{stamp} · {self.usage.total_tokens:,} tok · {format_usd(self.usage.cost_usd)}_",
+        ]
+        for agent_id in ids:
+            lines += ["", f"## {agent_id}"]
+            pending: dict[str, str] = {}  # tool_call_id -> "name(args)"
+            for message in self._threads[agent_id]:
+                if message.role is Role.USER:
+                    lines += ["", f"**You:** {message.content}"]
+                elif message.role is Role.ASSISTANT:
+                    if message.content:
+                        lines += ["", message.content]
+                    for call in message.tool_calls or ():
+                        function = call.get("function", {})
+                        pending[call["id"]] = (
+                            f"{function.get('name')}({function.get('arguments')})"
+                        )
+                elif message.role is Role.TOOL:
+                    call = pending.pop(message.tool_call_id, "tool call")
+                    lines += ["", f"> ⚙ {summarize(call)} → {summarize(message.content)}"]
+                else:  # pragma: no cover - defensive: sessions never store system messages
+                    lines += ["", f"**{message.role}:** {message.content}"]
+        return "\n".join(lines).strip() + "\n"
+
     def save(self, path: Path) -> Path:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(self.to_dict(), indent=2), encoding="utf-8")
@@ -123,7 +161,14 @@ class Session:
         sess = cls(list(threads))
         for agent_id, messages in threads.items():
             sess._threads[agent_id] = [
-                Message(Role(m["role"]), m.get("content", ""), m.get("name")) for m in messages
+                Message(
+                    Role(m["role"]),
+                    m.get("content", ""),
+                    m.get("name"),
+                    tuple(m["tool_calls"]) if m.get("tool_calls") else None,
+                    m.get("tool_call_id"),
+                )
+                for m in messages
             ]
         usage = raw.get("usage", {})
         sess.usage = Usage(

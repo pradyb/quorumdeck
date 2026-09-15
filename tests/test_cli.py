@@ -272,6 +272,24 @@ def test_export_reports_a_missing_session_file(tmp_path, capsys):
     assert "no session file" in capsys.readouterr().err
 
 
+def test_export_format_markdown_writes_one_readable_document(tmp_path, capsys):
+    from quorumdeck.core.session import Session
+
+    session = Session(["a", "b"])
+    session.add_user("hi")
+    session.add_assistant("a", "from a")
+    session.add_assistant("b", "from b")
+    saved = session.save(tmp_path / "s.json")
+
+    assert main(["export", str(saved), "--format", "markdown"]) == 0
+
+    out = capsys.readouterr().out
+    assert out.startswith("# quorumdeck session")
+    assert "## a" in out and "## b" in out
+    # Not JSONL: a single document, not one JSON object per line.
+    assert "{" not in out
+
+
 def test_sessions_list_shows_nothing_when_there_are_no_saved_sessions(
     tmp_path, capsys, monkeypatch
 ):

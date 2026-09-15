@@ -318,18 +318,23 @@ into every panel, but not the historical per-turn cost or latency figures:
 a per-turn breakdown, so there's nothing to replay there -- only the running
 total itself comes back, in the status bar.
 
-**Export** turns a saved session into JSONL, for anything outside quorumdeck:
+**Export** turns a saved session into something outside quorumdeck can use,
+in either of two shapes:
 
 ```bash
-deck export 20260915-153422.json                 # one JSONL line per agent, to stdout
-deck export 20260915-153422.json --agent claude   # just one agent's thread
-deck export 20260915-153422.json -o out.jsonl     # to a file instead
+deck export 20260915-153422.json                             # JSONL, the default
+deck export 20260915-153422.json --format markdown            # one readable document
+deck export 20260915-153422.json --agent claude                # just one agent's thread
+deck export 20260915-153422.json --format markdown -o notes.md # to a file instead
 ```
 
-Each line is `{"agent_id": ..., "messages": [...]}`, the same shape used for
-fine-tuning data, so a multi-agent session becomes one JSONL file with one
-line per model's own conversation -- ready for an eval harness or bulk
-analysis without writing a parser first.
+JSONL is `{"agent_id": ..., "messages": [...]}` per line, the same shape used
+for fine-tuning data, so a multi-agent session becomes one file with one line
+per model's own conversation -- ready for an eval harness or bulk analysis
+without writing a parser first. Markdown is for a person instead of a
+program: one `##` section per agent, a tool call rendered as a single
+`call → result` line rather than the two separate messages it actually took
+on the wire to represent it.
 
 ---
 

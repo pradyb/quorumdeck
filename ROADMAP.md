@@ -101,12 +101,22 @@ runtime. All five now do.
       `run --save` (writes the session afterward, same as ctrl+s) shipped
       alongside it -- without it, `run --resume` could only ever continue a
       session the TUI had started, never chain two headless runs together.
-- [x] `deck export` and `deck sessions list` -- a saved session to JSONL, one
-      fine-tuning-shaped line per agent, and a listing of what is available to
-      resume or export. `Session.save()`/`.load()` stay JSON on purpose;
-      that's the round-trippable shape resume needs, so export is a one-way
-      read of it, not a second save format.
-- [ ] Export a session to Markdown too, alongside JSONL.
+- [x] `deck export` and `deck sessions list` -- a saved session to JSONL or
+      Markdown (`--format`), and a listing of what is available to resume or
+      export. `Session.save()`/`.load()` stay JSON on purpose; that's the
+      round-trippable shape resume needs, so export is a one-way read of it,
+      not a second save format. Markdown renders a tool call as one
+      `call → result` line, not the two separate wire messages (an
+      assistant's `tool_calls`, a later `tool`-role reply) it actually took
+      to represent it.
+
+      Building it found a real bug in resume, not in export:
+      `Session.load()` wrote `Message.tool_calls`/`tool_call_id` via
+      `to_wire()` but never read them back, so a session that had used a
+      tool would come back from disk with a `tool`-role message carrying no
+      `tool_call_id` -- invalid on the wire, and most providers reject it
+      outright. Fixed in `load()` directly; would have surfaced the moment
+      anyone resumed a session that had called a tool.
 - [x] Cost budget per deck (`deck.budget_usd`), with a hard stop. Checked
       before a turn does anything, in both `run` and the TUI -- the TUI
       checks explicitly before mounting a prompt bubble into any panel,
