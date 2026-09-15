@@ -90,7 +90,7 @@ def _render(exc: ValidationError) -> str:
 
 
 TEMPLATE = """\
-# agentdeck -- https://github.com/pradeepdevlabs/agentdeck
+# agentdeck -- https://github.com/pradyb/agentdeck
 version: 1
 
 deck:

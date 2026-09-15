@@ -5,7 +5,7 @@ Thanks for taking a look.
 ## Getting set up
 
 ```bash
-git clone https://github.com/pradeepdevlabs/agentdeck
+git clone https://github.com/pradyb/agentdeck
 cd agentdeck
 uv sync
 uv run pytest

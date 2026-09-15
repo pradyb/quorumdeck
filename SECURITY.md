@@ -3,7 +3,7 @@
 ## Reporting a vulnerability
 
 Please report security issues privately through GitHub's
-[private vulnerability reporting](https://github.com/pradeepdevlabs/agentdeck/security/advisories/new)
+[private vulnerability reporting](https://github.com/pradyb/agentdeck/security/advisories/new)
 rather than opening a public issue. You can expect an acknowledgement within a
 few days.
 
